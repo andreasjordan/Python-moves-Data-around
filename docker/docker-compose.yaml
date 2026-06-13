@@ -1,0 +1,116 @@
+# Requires: Docker Compose 2.30.0 and later
+name: powershell-moves-data-around
+services:
+
+  sqlserver:
+    # To find latest SQL Server images, see https://mcr.microsoft.com/en-us/artifact/mar/mssql/server
+    image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04
+    ports:
+      - 1433:1433
+    environment:
+      MSSQL_SA_PASSWORD: '${MSSQL_SA_PASSWORD}'
+      ACCEPT_EULA: Y
+      MSSQL_PID: Developer
+      MSSQL_AGENT_ENABLED: True
+    mem_limit: 2gb
+    volumes:
+      - sqlserver:/var/opt/mssql
+      - ./sqlserver-init.sh:/init-scripts/init.sh:ro
+      - ./sqlserver-timesheets.sql:/init-scripts/timesheets.sql:ro
+      - ./sqlserver-stackexchange.sql:/init-scripts/stackexchange.sql:ro
+      - ./sqlserver-geodata.sql:/init-scripts/geodata.sql:ro
+      - ./sqlserver-photoservice.sql:/init-scripts/photoservice.sql:ro
+    command: [ "bash", "/init-scripts/init.sh" ]
+
+  oracle:
+    # To find latest Oracle images, see https://container-registry.oracle.com/ords/ocr/ba/database/express
+    # From the website: 
+    # The Oracle XE Database server Docker image contains Oracle Database Express Edition Release 21c (21.3.0.0) running on Oracle Linux 7. 
+    # This image contains a default database in a multitenant configuration with one pluggable database.
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    ports:
+      - 1521:1521
+    environment:
+      ORACLE_PWD: '${ORACLE_PWD}'
+      ORACLE_CHARACTERSET: AL32UTF8
+    mem_limit: 3gb
+    volumes:
+      - oracle:/opt/oracle
+      - ./oracle-stackexchange.sql:/opt/oracle/scripts/startup/stackexchange.sql:ro 
+      - ./oracle-geodata.sql:/opt/oracle/scripts/startup/geodata.sql:ro
+
+  postgres:
+    # To find latest PostGIS images, see https://hub.docker.com/r/postgis/postgis
+    image: postgis/postgis:18-3.6
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD}'
+    mem_limit: 1gb
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./postgres-stackexchange.sql:/docker-entrypoint-initdb.d/stackexchange.sql:ro
+      - ./postgres-geodata.sql:/docker-entrypoint-initdb.d/geodata.sql:ro
+      - ./postgres-photoservice.sql:/docker-entrypoint-initdb.d/photoservice.sql:ro
+
+  pgadmin:
+    # To find latest pgAdmin images, see https://hub.docker.com/r/dpage/pgadmin4
+    image: dpage/pgadmin4:9.15.0
+    ports:
+      - 5050:80
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      PGPASS_FILE: /pgadmin4/pgpass
+      PGADMIN_DISABLE_POSTFIX: 'True'
+    volumes:
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - ./pgadmin-pgpass:/pgadmin4/pgpass:ro
+
+  mongo:
+    # To find latest MongoDB images, see https://hub.docker.com/_/mongo
+    image: mongo:7.0.34
+    ports:
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - mongo:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+
+  minio:
+    # To find latest MinIO images, see https://quay.io/repository/minio/minio?tab=tags
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    ports:
+      - 9000:9000
+      - 9001:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio:/data
+      - ./minio-init.sh:/etc/minio/init/init.sh:ro
+      - ./minio-policy-photoservice.json:/etc/minio/init/policy-photoservice.json:ro
+      - ./minio-policy-stackexchange.json:/etc/minio/init/policy-stackexchange.json:ro
+    entrypoint: /etc/minio/init/init.sh
+
+  photoservice:
+    # To find latest PowerShell images, see https://mcr.microsoft.com/en-us/artifact/mar/powershell/tags
+    image: mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04
+    volumes:
+      - ./photoservice-app.ps1:/PhotoService/app.ps1:ro
+      - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
+      - /usr/local/share/powershell/Modules:/usr/local/share/powershell/Modules:ro
+      - ../lib:/PhotoService/lib:ro
+    working_dir: /PhotoService
+    command: pwsh -File /PhotoService/app.ps1
+
+volumes:
+  sqlserver: {}
+  oracle: {}
+  postgres: {}
+  mongo: {}
+  minio: {}
