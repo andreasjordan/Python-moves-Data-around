@@ -6,3 +6,21 @@ This is the siblings project for [PowerShell moves Data around](https://github.c
 
 I will present this at the [IT-Tage 2026 in Frankfurt](https://www.ittage.informatik-aktuell.de/programm) in my session [Einfach statt komplex: Datenbankintegration mit PowerShell und Python](https://www.ittage.informatik-aktuell.de/programm/2026/einfach-statt-komplex-datenbankintegration-mit-powershell-und-python.html).
 
+
+## Setup the environment
+
+Currently, I do it "quick and dirty".
+
+I have installed Python 3.14.6 on my Windows 11 system and also installed the needed modules with pip without using virtual environments. I will later use and document a cleaner setup.
+
+```
+python -m pip install pyodbc
+pip install pandas openpyxl
+pip install notebook
+```
+
+I have installed the "SQL Server ODBC driver" using these links:
+- https://learn.microsoft.com/sql/connect/odbc/
+- https://go.microsoft.com/fwlink/?linkid=2358430
+
+I use VS Code to work with Jupyter Notebooks.
