@@ -1,0 +1,247 @@
+# AGENTS.md
+
+Instructions for AI coding agents working in this repository.
+
+## What this repository is
+
+A teaching and demo repository that accompanies talks and videos: infrastructure as code, sample data
+and demo code showing how Python can move data around. It is deliberately **not production code**
+(see `README.md`).
+
+It is the sibling of [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around),
+and it is being built by porting that repository scenario by scenario. The two are presented side by
+side in one session, so **a Python function is expected to read like a recognisable translation of its
+PowerShell counterpart, not like idiomatic-at-any-cost Python.** Where Python genuinely wants something
+different — a DataFrame instead of an array of objects, a context manager instead of `finally` — that
+difference is itself part of the talk and worth making visible.
+
+**Prime directive:** optimize every change for *readability while being shown on a projector*, not for
+robustness, genericity or production hardening. If a change makes the code shorter and clearer, it is
+probably right. If it adds abstraction, indirection or defensive layers, it is probably wrong.
+
+## Current state — read this before assuming anything works
+
+The repository is early. Only the **Timesheets** scenario exists, and only for SQL Server.
+
+| Area | State |
+| --- | --- |
+| `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
+| `lib/` | Three functions, SQL Server only: `connect_sql_instance`, `invoke_sql_query`, `write_sql_table`. |
+| `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
+| `02_wsl2_setup.sh`, `04_docker_compose.sh` | Work. `02` installs pyenv and Python 3.14.6 on top of what the sibling does. |
+| `03_pwsh_setup.ps1` | Installs the PowerShell modules, then **fails on its last two statements** — it dot-sources `lib/Import-OraLibrary.ps1` and `lib/Import-PgLibrary.ps1`, which do not exist here. The modules are installed by then. |
+| `05_sample_data_setup.ps1` | `Get-ChildItem lib/*-*.ps1` matches nothing and stays silent, so the **Timesheets block still runs** and creates `data/timesheets/*.xlsx`. It then **fails at `Connect-MioInstance`** in the StackExchange block. |
+| `06_test_connections.ps1` | **Fails immediately** at `Import-OraLibrary`. |
+| `01_setup.ps1` | Chains all of the above, so it throws at step `03`. |
+| `docker/photoservice-app.ps1` | **Broken here**, same reason: it dot-sources `./lib/*-Pg*.ps1`. The `photoservice` container cannot start its app. |
+| `docker/docker-compose.yaml` | Still carries `name: powershell-moves-data-around` and the same host ports as the sibling. The two repositories cannot run their containers at the same time on one machine. |
+
+Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
+They are known, and each one is a decision the repository owner has not made yet — a `.ps1` here is
+either waiting to be ported to Python or waiting to be deleted.
+
+## Demo notebooks are stepped through, never run
+
+`demo/01_timesheets.ipynb` is opened in VS Code and executed **cell by cell**, telling a story as it
+goes. The markdown cells between the code are the narration.
+
+- Never run the notebook, and never run "Run All".
+- Never merge cells to make them run in one go, and never restructure it into a `.py` script.
+- **Never strip the outputs.** They are committed on purpose: the printed DataFrames and the
+  `[VERBOSE]` lines are what the reader of the repository sees without a database of their own.
+  A tool or hook that clears notebook output is wrong for this repository.
+- Cells that only put a variable name on the last line, imports repeated in a later cell, and code
+  commented out on purpose (`os.startfile`, the `DROP TABLE`) are **pedagogical, not dead code**.
+  Do not flag or remove them.
+
+When you do change a notebook, edit the JSON minimally with `NotebookEdit` and touch only the cells
+the task is about. Do not reformat the file — a whole-file rewrite loses the diff and usually the
+outputs with it.
+
+Scripts that *are* meant to run: the numbered scripts in the repository root (subject to the table
+above) and `start_containers.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
+imported.
+
+## Repository map
+
+| Path | What it is |
+| --- | --- |
+| `01_setup.ps1` … `06_test_connections.ps1` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest. Still PowerShell, still partly the sibling's. |
+| `start_containers.ps1` | Restarts the Docker containers after a reboot. |
+| `data/<scenario>/` | Sample data per scenario. Generated and downloaded artifacts are gitignored; only `README.md` and `sample.json` (plus the photos) are committed. |
+| `demo/` | The notebooks, plus the helper modules a notebook imports. |
+| `docker/` | `docker-compose.yaml`, the per-scenario database init SQL/sh/js, and the PhotoService application. |
+| `lib/` | The data access layer. One function per file. |
+
+## The lib/ naming grid
+
+Every module is `<verb>_<prefix>_<noun>.py` and holds **exactly one public function of the same name**.
+This mirrors the sibling's `<Verb>-<Prefix><Noun>` one-function-per-file layout, so the two can be shown
+next to each other:
+
+| PowerShell | Python |
+| --- | --- |
+| `lib/Connect-SqlInstance.ps1` → `Connect-SqlInstance` | `lib/connect_sql_instance.py` → `connect_sql_instance` |
+| `lib/Write-PgTable.ps1` → `Write-PgTable` | `lib/write_pg_table.py` → `write_pg_table` |
+
+The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL), `mdb` (MongoDB) and `mio`
+(MinIO). Helper functions that are not part of the public surface are prefixed with `_` and live in the
+same file as their caller.
+
+`lib/README.md` has the index of what exists today and which cells of the grid are still empty.
+
+**Sibling rule:** once a second provider exists, the `sql`, `ora` and `pg` implementations of a verb
+family are near-identical by design. Before changing `lib/xxx_sql_yyy.py`, read `xxx_ora_yyy.py` and
+`xxx_pg_yyy.py`. Either apply the same change to all siblings, or say explicitly why that provider has
+to differ. Unexplained divergence between siblings is a bug. **This rule also reaches across
+repositories:** if the sibling PowerShell function has a parameter, a guard clause or a `finally` block
+and the Python one does not, that is a finding unless the difference is inherent to the language.
+
+## Function contract
+
+```python
+def connect_sql_instance(
+    instance,
+    database=None,
+    username=None,
+    password=None,
+    pooled_connection=False,
+    enable_exception=False
+):
+```
+
+- Plain functions. **No type hints, no dataclasses, no classes.** The sibling's parameter block is a
+  `param()` with attributes; here it is a plain signature with defaults, and that comparison is easier
+  to make when nothing else is in the way.
+- `snake_case` parameters, one per line, keyword arguments at the call site. Positional calls into
+  `lib/` are not used anywhere and should not start.
+- Parameter names are the sibling's, lower-cased: `-Instance` → `instance`, `-BatchSize` →
+  `batch_size`, `-TruncateTable` → `truncate_table`.
+- **Every function ends its parameter list with `enable_exception=False`**, the port of
+  `[switch]$EnableException`. It is the only error-handling switch in the library:
+
+  ```python
+  except Exception as e:
+      message = f"<Step> failed: {str(e)}"
+      if enable_exception:
+          raise Exception(message)
+      else:
+          print(f"[ERROR] {message}")
+          return None
+  ```
+
+  The `return None` matters — without it execution continues into code that assumes the failed step
+  worked. A function that raises unconditionally, or that has no `enable_exception` at all, does not
+  meet the contract.
+- Progress and diagnostics go through `print()` with a level tag, the stand-in for the sibling's
+  `Write-PSFMessage`: `[VERBOSE]` inside `lib/`, `[ERROR]` on the failure path. Notebooks print
+  whatever reads well. Do not introduce `logging` in `lib/` without being asked — there is a commented
+  sketch at the bottom of `connect_sql_instance.py` and that decision is still open.
+- **No emoji in `lib/`.** `demo/import_xls_timesheet.py` prints `📄` and `↳`; that is fine in Jupyter,
+  which is UTF-8, but the same code raises `UnicodeEncodeError` in a `cp1252` Windows console.
+- Cursors, readers and files are closed on every path — `try/finally`, or a `with` block where the
+  driver supports it.
+- Long-running bulk operations print progress per batch: rows done, percentage, rows/sec.
+- Runnable scripts do not swallow errors; an exception should stop the script.
+
+## Loading model
+
+There is **no package, no `__init__.py`, no `setup.py`/`pyproject.toml` — that is deliberate**, so the
+audience sees plain functions in plain files. `lib/` is put on `sys.path` and the functions are imported
+by name, which is the closest thing Python has to the sibling's dot-sourcing:
+
+```python
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path("../lib").resolve()))
+
+from connect_sql_instance import connect_sql_instance
+from invoke_sql_query import invoke_sql_query
+from write_sql_table import write_sql_table
+```
+
+The relative `../lib` means a notebook only resolves it correctly when the working directory is `demo/`,
+which is what VS Code and Jupyter do. Modules that live next to the notebook (`import_xls_timesheet`)
+are imported directly, without the `sys.path` dance.
+
+Runtime dependencies, all installed with plain `pip` into the system interpreter today:
+`pyodbc`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally needs the
+[Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name is
+hard-coded in `connect_sql_instance.py`. There is no `requirements.txt` and no virtual environment
+yet; `README.md` says so and calls it "quick and dirty". Do not add either one without being asked.
+
+## Deliberate decisions — do not "fix" these
+
+- The password `Passw0rd!` is hard-coded in `docker/.env`, the init SQL, the notebooks and the setup
+  scripts. These are throwaway local containers and the password being visible is part of the teaching.
+  It is not a security finding. Do not parameterize it, do not move it to a vault, do not add
+  `python-dotenv`.
+- `127.0.0.1` rather than `localhost`, to force IPv4.
+- `TrustServerCertificate=yes` in the connection string — local containers with self-signed
+  certificates.
+- **SQLAlchemy and ORMs are deliberately not used.** Hand-written DB-API code *is* the demo, exactly as
+  the sibling uses hand-written ADO.NET rather than dbatools. Never propose replacing it. `pandas` is
+  fine — it is the data container, not the database layer — but `pandas.read_sql` /
+  `DataFrame.to_sql` hide the very thing being demonstrated.
+- No tests, no CI, no packaging, no type hints, no docstring standard.
+- Committed notebook outputs, see above.
+
+## Verifying a change
+
+The containers are probably not running, and starting them costs a WSL2 boot and several minutes.
+
+**Do not run** `wsl`, `docker compose up`/`down`, `01_setup.ps1`, `start_containers.ps1`, or any
+notebook in `demo/`. Verify statically instead:
+
+```bash
+# Syntax check — works with nothing installed beyond Python
+python -m compileall -q lib demo
+
+# Style and rule check — needs `pip install ruff` first
+python -m ruff check .
+
+# Notebook still parses as a notebook, and the outputs are still there
+python -c "import json,sys; nb=json.load(open(sys.argv[1],encoding='utf-8')); print(len(nb['cells']),'cells,',sum(len(c.get('outputs',[])) for c in nb['cells']),'outputs')" demo/01_timesheets.ipynb
+```
+
+Read-only inspection (`docker ps`, `docker compose logs`, `git`) is fine.
+
+If a change really cannot be verified without a database, say so rather than claiming it works.
+
+## Style
+
+Four-space indentation, double quotes, f-strings, `snake_case`. Blank line between logical steps inside
+a function, with a short comment naming the step — the comments are read aloud during the demo:
+
+```python
+# Build connection string
+conn_parts = [
+    "DRIVER={ODBC Driver 18 for SQL Server}",
+    f"SERVER={instance}"
+]
+```
+
+DataFrames are the canonical in-memory shape for data in flight, the counterpart to the sibling's
+`[PSCustomObject]` arrays. Prefer a single chained `assign(...)[[columns]]` over building a frame
+column by column — it fits on a slide.
+
+**Do not reformat lines you are not otherwise changing.** There is pre-existing trailing whitespace and
+there are missing final newlines in places; leave them alone unless the task is explicitly a formatting
+pass.
+
+## Adding or porting a demo scenario
+
+A scenario touches all of these. Miss one and the repository is inconsistent.
+
+1. `data/<name>/README.md` and, if the data is generated, `data/<name>/sample.json`
+2. The generated or downloaded artifact pattern in `.gitignore`
+3. The sample-data step — today that is the scenario block in `05_sample_data_setup.ps1`; a Python
+   replacement for it is the obvious next thing to build
+4. `docker/sqlserver-<name>.sql` (and the Oracle/Postgres equivalent if used), plus the mount in
+   `docker/docker-compose.yaml` and the line in `docker/sqlserver-init.sh` — for the ported scenarios
+   these all already exist, since `docker/` came over complete
+5. `demo/NN_<name>.ipynb`, with markdown narration between the code cells
+6. Any `lib/` function the scenario needs, following the naming grid and the function contract
+7. The entry in `lib/README.md`
+8. **The `### <Name>` section under "Demo scenarios" in `README.md`**

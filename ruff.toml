@@ -1,0 +1,70 @@
+# Ruff settings for this repository.
+#
+# Run with:  python -m ruff check .
+# Ruff is not a runtime dependency and is not installed yet. Install it once with:
+#   pip install ruff
+#
+# This is a `ruff.toml` and not a `[tool.ruff]` section in a `pyproject.toml` on purpose:
+# the repository is deliberately not a Python package (see AGENTS.md, "Loading model"),
+# and a pyproject.toml would suggest otherwise.
+#
+# The ignored rules below are not oversights. This is a teaching repository of demo code,
+# and each entry records a decision that is documented in AGENTS.md.
+
+line-length = 120
+
+# Bump to "py314" once the installed ruff knows that target. Only the UP rules care.
+target-version = "py313"
+
+exclude = ["data", "docker"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "S",    # flake8-bandit
+    "T20",  # flake8-print
+    "BLE",  # flake8-blind-except
+    "TRY",  # tryceratops
+]
+
+ignore = [
+    # The lib/ functions print their progress. That is the demo — the audience watches the
+    # output scroll by. Which prefix belongs on which message is enforced by review, not here.
+    "T201",
+
+    # `except Exception` is the deliberate shape of the enable_exception contract: catch
+    # everything, then either re-raise or print and return None. Narrowing it per provider
+    # would mean knowing every driver's exception hierarchy, which is not what the demo shows.
+    "BLE001",
+    "TRY002",
+    "TRY003",
+    "TRY300",
+    "TRY400",
+
+    # SQL is built from table and column names that come out of the schema of the very table
+    # being written to, and identifiers are quoted before interpolation. There is no user input
+    # in the string. Values always go through `?` placeholders — that part is not negotiable.
+    "S608",
+
+    # The demo password is public on purpose. Every container is local and throwaway, and
+    # showing the credential handling in plain sight is part of the demo.
+    "S105",
+    "S106",
+    "S107",
+]
+
+# Import sorting (I), the docstring rules (D) and `ruff format` are deliberately left off.
+# Turning them on would reformat files nobody is otherwise touching, and the resulting diff
+# would bury the findings that matter. Indentation and line endings are covered by
+# .editorconfig instead.
+
+[lint.per-file-ignores]
+# Notebooks are stepped through cell by cell. Imports repeated in a later cell, variables that
+# are only ever looked at interactively, and a bare expression on the last line of a cell are
+# pedagogical, not dead code.
+"demo/*.ipynb" = ["E402", "F401", "F811", "B018"]

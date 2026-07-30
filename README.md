@@ -24,3 +24,166 @@ I have installed the "SQL Server ODBC driver" using these links:
 - https://go.microsoft.com/fwlink/?linkid=2358430
 
 I use VS Code to work with Jupyter Notebooks.
+
+
+
+## Current state
+
+This repository is a work in progress. The [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around)
+repository is being ported scenario by scenario, and so far only the first one is here:
+
+| Part | State |
+| --- | --- |
+| Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
+| `lib/` | Three functions, SQL Server only |
+| Containers | Complete, all scenarios' databases are created |
+| Sample data setup and connection test | Still the PowerShell versions from the sibling repository, and they do not run here yet |
+
+The remaining scenarios — StackExchange, Geodata, PhotoService, ProjectStatus — are described in the
+sibling repository and will follow.
+
+
+
+## Supported data sources and targets
+
+Working today:
+
+- Microsoft SQL Server
+- Microsoft Excel
+
+Planned, in the order the scenarios will be ported:
+
+- MinIO
+- MongoDB
+- PostgreSQL
+- Oracle database
+- JSON files, XML files, GPX files, JPEG files
+
+
+
+## Repository layout
+
+| Path | Content |
+| --- | --- |
+| `01_setup.ps1` … `06_test_connections.ps1` | The setup steps. `01_setup.ps1` runs all of them. Still PowerShell, see "Current state". |
+| `start_containers.ps1` | Restarts the containers after a reboot. |
+| `data/` | One directory per scenario for the sample data. The generated and downloaded files are not part of the repository. |
+| `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
+| `docker/` | The compose file, the database init scripts and the PhotoService application. |
+| `lib/` | The functions that do the actual work. See [lib/README.md](lib/README.md) for an overview. |
+
+
+
+## Running the demos
+
+The notebooks are **not meant to be executed as a whole**. They are meant to be opened in Visual Studio
+Code and then run cell by cell, so that you can look at the data and the results at every step. The
+markdown cells in between are the story.
+
+The outputs are committed on purpose, so that you can read through a demo without setting up a single
+container.
+
+A notebook expects the working directory to be `demo/`, which is what VS Code and Jupyter do by
+default. That is how `sys.path.append(str(Path("../lib").resolve()))` finds the functions in `lib/`.
+
+
+
+## Demo scenarios
+
+### Timesheets
+
+- Setup: Excel files will be created from sample data
+- Excel files will be read into a pandas DataFrame
+- The DataFrame will be written into a SQL Server database
+
+The Excel files are currently created by the PowerShell script `05_sample_data_setup.ps1` from the
+sibling repository. Porting that step to Python is one of the next things to do.
+
+
+
+## Infrastructure
+
+The repository is designed for and tested on a Windows 11 system with 32 GB of RAM. WSL2 is configured
+with Docker to run the databases inside containers. The container setup is taken over unchanged from the
+sibling repository.
+
+These containers are used: SQL Server 2025, Oracle Database Express Edition 21c, PostgreSQL with
+PostGIS, pgAdmin, MongoDB, MinIO, and one running the PhotoService application. The exact image versions
+are pinned in `docker/docker-compose.yaml`.
+
+Two of the containers have a web interface:
+
+- MinIO: http://127.0.0.1:9001/login
+- pgAdmin: http://127.0.0.1:5050/browser/
+
+All accounts use the same password, which is configured in `docker/.env`. As this is a demo environment
+that only runs locally, the password is part of the repository.
+
+Both repositories use the same host ports, so only one of them can have its containers running at a
+time.
+
+
+### Install WSL2
+
+I use the Ubuntu 24.04 image by running `wsl --install -d Ubuntu-24.04` in an elevated Command Prompt or
+PowerShell on a current Windows 11 system. To start from scratch, you can remove Ubuntu by running
+`wsl --unregister Ubuntu-24.04`. At the end of the installation, Ubuntu starts automatically, and you
+are prompted to create a Unix user account. The username and password do not matter.
+
+
+### Clone or download the repository
+
+Open a non-elevated PowerShell and navigate to a folder of your choice. In this guide, I will use
+`C:\tmp`.
+
+```
+if (-not (Test-Path -Path C:\tmp)) {
+    $null = New-Item -Path C:\tmp -ItemType Directory
+}
+Set-Location -Path C:\tmp
+```
+
+If you have git installed, you can just clone the repository:
+
+```
+git clone https://github.com/andreasjordan/Python-moves-Data-around.git
+```
+
+Or you can download and extract the repository:
+
+```
+[Net.WebClient]::new().DownloadFile('https://github.com/andreasjordan/Python-moves-Data-around/archive/refs/heads/main.zip', "$PWD\Python-moves-Data-around.zip")
+Expand-Archive -Path $PWD\Python-moves-Data-around.zip -DestinationPath $PWD
+Rename-Item -Path $PWD\Python-moves-Data-around-main -NewName Python-moves-Data-around
+Remove-Item -Path $PWD\Python-moves-Data-around.zip
+```
+
+
+### Start the installation
+
+`01_setup.ps1` runs all six steps, but steps 3, 5 and 6 are still the sibling repository's PowerShell
+versions and stop with an error here. Until they are ported, run the setup like this in a non-elevated
+PowerShell:
+
+```
+wsl --cd $PWD --user root ./02_wsl2_setup.sh
+wsl --cd $PWD --user root pwsh ./03_pwsh_setup.ps1
+wsl --shutdown
+wsl --cd $PWD --user root ./04_docker_compose.sh
+wsl --cd $PWD pwsh ./05_sample_data_setup.ps1
+```
+
+Two of these stop with an error, and both times that is expected at the moment:
+
+- Step 3 installs the PowerShell modules and then fails on its last two lines. The modules are
+  installed by then, and `ImportExcel` is the one the next step needs.
+- Step 5 writes `data/timesheets/*.xlsx` and then fails at the StackExchange section, which needs
+  functions that have not been ported yet. The Timesheets demo has everything it needs at that point.
+
+Finally run `start_containers.ps1`. It keeps running WSL2 so that the containers stay up — if you exit,
+WSL2 shuts down along with all of them.
+
+
+### Restart the docker containers
+
+To restart the containers, simply execute `start_containers.ps1` in a non-elevated PowerShell.

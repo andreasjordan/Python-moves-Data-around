@@ -1,5 +1,10 @@
-demo/__pycache__/*.*
-lib/__pycache__/*.*
+.claude/settings.local.json
+
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.ruff_cache/
+
 data/timesheets/*.xlsx
 data/stackexchange/*.xml
 data/geodata/*.gpx

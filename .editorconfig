@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yaml,yml,json}]
+indent_size = 2
+
+# Notebooks are generated JSON. Never hand-edit or reformat them — VS Code and
+# Jupyter own the file, and a reformat would rewrite every cell and every output.
+[*.ipynb]
+indent_size = 1
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.md]
+trim_trailing_whitespace = false
+
+# The PowerShell files that are left over from the sibling repository still use
+# CRLF in the working tree. They are not reformatted here; .gitattributes stores
+# them as LF, which is what the containers need.
+[*.ps1]
+trim_trailing_whitespace = false
