@@ -102,6 +102,17 @@ default. That is how `sys.path.append(str(Path("../lib").resolve()))` finds the 
 The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/sample.json`.
 
 
+### StackExchange
+
+- Setup: XML files will be downloaded from archive.org/download/stackexchange
+- The files are read line by line, because every row is valid XML on its own
+- Data from the XML files will be imported into a SQL Server database
+
+This scenario is still being built. Compared to the PowerShell version it is missing the import into
+Oracle and PostgreSQL, the streaming of data between databases and database systems, the import into
+MongoDB, and the upload to and download from MinIO.
+
+
 
 ## Infrastructure
 

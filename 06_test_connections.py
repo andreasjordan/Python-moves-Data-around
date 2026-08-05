@@ -25,6 +25,27 @@ timesheets["sql_connection"] = connect_sql_instance(
 
 timesheets["sql_connection"].close()
 
+
+# StackExchange
+print("Setting up variables and connections for StackExchange")
+
+stackexchange = {
+    "sql_instance": "127.0.0.1",
+    "sql_login": "StackExchange",
+    "sql_password": "Passw0rd!",
+    "sql_database": "StackExchange"
+}
+
+stackexchange["sql_connection"] = connect_sql_instance(
+    instance=stackexchange["sql_instance"],
+    database=stackexchange["sql_database"],
+    username=stackexchange["sql_login"],
+    password=stackexchange["sql_password"],
+    enable_exception=True
+)
+
+stackexchange["sql_connection"].close()
+
 print("Finished")
 
 print("MinIO: http://127.0.0.1:9001/login")
