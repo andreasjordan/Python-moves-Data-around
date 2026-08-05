@@ -86,6 +86,52 @@ spends minutes downloading sample data. Do not check the container log for the i
 immediately after a restart. PostgreSQL has its own wait now; Oracle will need one too,
 and it takes far longer to start than either of them.
 
+## The StackExchange port — remaining steps
+
+The scenario is being built in small steps, deliberately not in the order of the sibling's demo, so
+that each step settles one design question. Done: the sample data, reading the XML, the SQL Server
+import, the PostgreSQL import, and streaming table to table. What is left, in the suggested order:
+
+### Oracle
+
+The decisions already taken, so nobody has to rediscover them:
+
+- **Driver: `oracledb`.** Thin mode is expected to need no Oracle Instant Client at all, which would be
+  a bigger simplification than the DLL download it replaces. **This is not measured yet** — the entry
+  "Getting a driver" in `DIFFERENCES.md` is marked accordingly and this step settles it.
+- **`pip install oracledb`** has to be added to `03_python_setup.sh` and to the pip block in
+  `README.md`. An agent cannot run it: `pip install` is on the deny list in `.claude/settings.json`, so
+  the repository owner runs `03_python_setup.sh` for WSL2 and the pip line for Windows, where the
+  notebooks run.
+- **Case: upper.** Oracle folds unquoted identifiers to UPPER CASE, the inverse of PostgreSQL. The rule
+  agreed with the owner is to use whatever case is natural for that database — camel case for SQL
+  Server, lower for PostgreSQL, upper for Oracle. The lower-casing that `import_*_table` does *for
+  matching* is case-agnostic and already handles it; only `_quote_identifier` differs, upper instead of
+  lower.
+- **Bulk insert:** Oracle has no `COPY`. `executemany` with array DML is the fast path, so this will
+  look more like the SQL Server version than the PostgreSQL one. **Measure first** whether raw strings
+  work, as they do for PostgreSQL, or whether the values have to be converted, as for SQL Server. Both
+  earlier answers were surprising; do not guess this one either.
+- **`04_docker_compose.sh` needs a third wait.** Oracle takes far longer to start than either of the
+  others, so this matters more here, not less.
+- **`06_test_connections.py` needs an Oracle block.** The sibling connects to `127.0.0.1/XEPDB1` as
+  user `stackexchange`. Note that `Connect-OraInstance` has no `-Database` — the service name is part
+  of `-Instance` — and it has an `-AsSysdba` switch that nothing in the demo uses.
+
+### MongoDB
+
+`connect_mdb_instance`, `write_mdb_collection`, `read_mdb_collection`, with `pymongo`. The XML rows are
+already plain dicts, which is what pymongo wants, so the conversion the sibling does by hand mostly
+disappears. The sibling maps `Id` to `_id`.
+
+### MinIO
+
+`connect_mio_instance` and the four file functions, plus the upload block in `05_sample_data_setup.py`.
+**Left for last on purpose:** the sibling hand-rolls AWS SigV4 as script methods on a `PSCustomObject`,
+while Python has `boto3` and `minio`. Reaching for an SDK would be the first time a library hides the
+protocol being demonstrated — the same category of decision as "no SQLAlchemy" — so it needs an
+explicit decision from the owner rather than a default.
+
 ## Demo notebooks are stepped through, never run
 
 `demo/01_timesheets.ipynb` is opened in VS Code and executed **cell by cell**, telling a story as it

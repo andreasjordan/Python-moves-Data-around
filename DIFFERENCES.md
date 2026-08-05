@@ -256,6 +256,24 @@ than pixels.
 
 **Decision:** keep it in the notebook rather than in a `lib/` function, exactly as the sibling does.
 
+### A directory is not a file pattern
+
+**The sibling:** the demo calls `Import-XlsTimesheet -Path ..\data\timesheets\Department*.xlsx`. The
+parameter is a *file pattern*.
+
+**Python:** the port turned that into a directory and globbed `*.xlsx` inside it. That reads better
+until you notice that the last section of the same notebook writes `Report.xlsx` into exactly that
+directory.
+
+**Evidence:** `demo/01_timesheets.ipynb` failed on every second run with `KeyError: 'date'` — the
+importer was trying to read the report it had produced itself.
+
+**Decision:** `import_xls_timesheet` takes a pattern again, like the sibling.
+
+**Why it matters:** this is a divergence that was not a decision. Nobody chose to change the meaning of
+the parameter; it happened while translating, and it produced a bug the sibling cannot have. When a
+parameter changes shape in the port, that is worth a second look.
+
 ### Reading a block back
 
 **Python only.** Two result blocks of different length share one worksheet. Reading a column range
