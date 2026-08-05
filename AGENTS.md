@@ -28,7 +28,7 @@ MinIO are still missing.
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
-| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, and streaming table to table. No MongoDB or MinIO yet. **The Oracle cells have no committed output yet** — they were written without running the notebook, so step through them once and commit what they print. |
+| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, and streaming table to table. Stepped through end to end, outputs committed. No MongoDB or MinIO yet. |
 | `lib/` | Fifteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`. MongoDB and MinIO are empty. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
