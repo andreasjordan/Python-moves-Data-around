@@ -160,6 +160,114 @@ to `Write-PgTable`.
 passing raw strings fails outright and the fastest path needs the most code. On PostgreSQL, passing
 raw strings is both the fastest path and the least code.
 
+### Loading into Oracle: two converters out of fourteen
+
+**The sibling:** `Import-OraTable` fills a `DataTable` typed from `GetSchemaTable()` and hands it to
+`OracleBulkCopy`. It is the same shape as its SQL Server counterpart, and again nothing in the script
+mentions a type.
+
+**Python:** Oracle has no `COPY`, so this looks like the SQL Server version — `executemany` with
+batches — and the question is again which values have to be converted first. The answer is neither of
+the two earlier answers.
+
+**Evidence** — `Users.xml`, 12220 rows, into `Import_Users`:
+
+| Approach | Result |
+| --- | --- |
+| raw strings | fails, `ORA-01843: not a valid month` |
+| raw strings, CLOB declared with `setinputsizes` | fails, `ORA-01843` again |
+| only the numbers converted | fails, `ORA-01843` again |
+| only the timestamps converted | works, **0.27 s** |
+| every value converted | works, 0.45 s |
+| every value converted, CLOB declared with `setinputsizes` | works, **13.84 s** |
+
+**Decision:** convert the `TIMESTAMP` and `DATE` columns and nothing else. Oracle converts the
+numbers out of their strings on its own; it will not take an ISO timestamp, because that is not what
+`NLS_TIMESTAMP_FORMAT` describes. So `_CONVERTERS` in `import_ora_table` has two entries where the
+SQL Server version needs eight, and a column type that is *not* in the table keeps its string — the
+inverse of `import_sql_table`, where a missing entry has to be an error.
+
+**Rejected:** declaring the CLOB column with `setinputsizes`. It is the thing that looks careful, and
+it costs 30×. Undeclared, a 5440 character `AboutMe` reaches the CLOB perfectly well.
+
+**Also rejected:** `ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.FF'`, which
+makes raw strings work for every column and is exactly as fast (0.37 s), and would have removed the
+converter table entirely — the PostgreSQL answer. It was rejected because `write_ora_table` cannot
+use it: its input is a DataFrame or a data reader, which hold `datetime` objects rather than text, so
+only the declaration below helps there. Choosing it for the import would have left the two Oracle
+functions solving one problem two different ways.
+
+**Why it matters:** the same question has now produced three different answers on three databases —
+convert everything, convert nothing, convert two columns — and in each case the shortest code and the
+fastest code were the same thing.
+
+### The timestamp that arrived without its milliseconds
+
+The most dangerous thing found in the port so far, because every check short of comparing the values
+said it had worked.
+
+**The sibling:** never encounters it. The `DataTable` column is typed `DateTime` from
+`GetSchemaTable()`, and `OracleBulkCopy` puts it into a `TIMESTAMP(3)` with its fraction intact.
+
+**Python:** converting the string to a `datetime` is **not enough**. oracledb binds a Python
+`datetime` as `DB_TYPE_DATE`, and an Oracle `DATE` holds whole seconds. The fractional part is
+dropped on the way in — with no error, no warning, and the correct number of rows reported.
+
+**Evidence** — `Users.xml`, the `LastAccessDate` column:
+
+| | |
+| --- | --- |
+| the file says | `2011-01-03T17:13:19.040` |
+| `datetime.fromisoformat` gives | `datetime(2011, 1, 3, 17, 13, 19, 40000)` — correct |
+| Oracle stored | `2011-01-03 17:13:19.000` — the fraction is gone |
+
+**12179 of 12220 rows** were affected. The other 41 have a `.000` fraction in the file. `CreationDate`
+matched on all 12220 rows and hid the problem completely, because those values all end in `.000`.
+
+**Decision:** `cursor.setinputsizes(...)` declaring the `TIMESTAMP` columns as `DB_TYPE_TIMESTAMP`,
+in `import_ora_table` **and** in `write_ora_table`. With it, all 12220 rows are exact, and it is
+slightly *faster* than not declaring them (0.32 s against 0.34 s). Verified afterwards on every path
+that carries a timestamp into Oracle: from the file, from Oracle, from PostgreSQL, and from a pandas
+DataFrame whose column is `datetime64[us]`.
+
+**Why it matters:** this is the failure mode this repository keeps meeting, in its worst form yet. The
+first measurement of this path reported `OK - 12220 rows in 0.27 s` and was believed. It was only
+caught by joining the result against the source file and comparing values, and the comparison had to
+be per column — checking `CreationDate` alone would have confirmed the bug as correct.
+
+### A CLOB is a handle, and it prints like a string
+
+**The sibling:** an `AboutMe` read through `OracleDataReader` is a `string`. Nothing in the sibling
+mentions LOBs.
+
+**Python:** by default `oracledb` returns a `CLOB` as a `LOB` object — a lazy handle that has to be
+read separately. `oracledb.defaults.fetch_lobs = False` asks for strings instead, and that default is
+read **when a connection is created**, not when a row is fetched.
+
+**Evidence:**
+
+| | |
+| --- | --- |
+| `type()` of the value | `oracledb.lob.LOB` |
+| the same value in a printed DataFrame | `<p>Hi, I'm not really a person.</p>…` |
+| streaming it into SQL Server | fails, `Unknown object type LOB during describe` |
+| full table fetch, LOB handles never read | 0.20 s |
+| full table fetch, `fetch_lobs = False` | 0.27 s |
+| full table fetch, then `.read()` on each LOB | **4.68 s** |
+
+**Decision:** `connect_ora_instance` sets `oracledb.defaults.fetch_lobs = False`. A `lib/` function
+writing to a driver-wide default is not pretty, but the default is consulted at connect time, so
+that is the only place it can go — and the alternative, an output type handler on every cursor that
+might see a CLOB, would have to be repeated in `invoke_ora_query` and `get_ora_data_reader` and
+silently breaks whichever one it is forgotten in.
+
+**Rejected:** the per-cursor output type handler. It works and it is marginally faster (0.25 s), but
+it has to be remembered in two places, and its failure mode is the one below.
+
+**Why it matters:** a DataFrame full of LOB handles *looks* right on a projector, because a LOB
+renders as its own content. The trap is that it displays perfectly and then fails the moment the
+data leaves Python for another database — which is the entire point of this demo.
+
 ### A read opens a transaction nobody asked for
 
 **The sibling:** an ADO.NET or Npgsql command without an explicit transaction commits itself. There is
@@ -225,7 +333,8 @@ transfer inside one method call; here the audience sees the batch being fetched,
 disposes the reader in its `finally`. The alternative — the caller closes it — was rejected only
 because it would diverge from the sibling for no gain.
 
-**Evidence**, 12220 rows, all four directions:
+**Evidence**, 12220 rows. The first four were measured together, the Oracle five in a later run once
+`write_ora_table` existed, so compare within a block rather than across them:
 
 | From | To | Result |
 | --- | --- | --- |
@@ -233,10 +342,23 @@ because it would diverge from the sibling for no gain.
 | PostgreSQL | SQL Server | 0.88 s |
 | SQL Server | PostgreSQL | 0.31 s |
 | PostgreSQL | PostgreSQL | 0.16 s |
+| Oracle | Oracle | 0.89 s |
+| SQL Server | Oracle | 0.61 s |
+| PostgreSQL | Oracle | 0.48 s |
+| Oracle | SQL Server | 1.03 s |
+| Oracle | PostgreSQL | 0.50 s |
 
 Nothing had to be converted between the systems: psycopg hands out Python objects, pyodbc takes Python
 objects, and the dates, integers and `NULL`s survive unchanged. The two targets that are PostgreSQL are
 the fast ones, for the same reason the file import was — `COPY`.
+
+**With one exception, and it is Oracle on both sides of it.** Writing *into* Oracle needs the
+`TIMESTAMP` columns declared or the milliseconds are lost, and reading *out of* Oracle needs
+`fetch_lobs = False` or pyodbc is handed a LOB object it cannot describe. Both have their own entries
+above. Once those two lines are in place, all nine directions carry the data through unchanged, and
+the millisecond fractions were verified against the file on every path whose target is `TIMESTAMP(3)`.
+SQL Server is excluded from that check on purpose: `DATETIME` has 1/300 second resolution, so it
+rounds the fractions by design rather than by accident.
 
 **Known limitation:** psycopg's normal cursor fetches the whole result before the first `fetchmany`
 returns, so `get_pg_data_reader` streams from the writer's point of view but not from the server's. A
@@ -296,9 +418,15 @@ into `lib/` on first use. The DLLs are gitignored and must never be committed.
 
 **Python:** `pip install` in `03_python_setup.sh`. Two cells of the function grid disappear entirely.
 
-**Status:** not yet measured. Oracle and PostgreSQL are steps 4 and 5 of the StackExchange port. The
-expectation is that `oracledb` in thin mode needs no Oracle client at all, which would be a larger
-simplification than the DLL download it replaces.
+**Measured, and the expectation held.** `oracledb` runs in **thin mode** by default —
+`oracledb.is_thin_mode()` is `True` before and after connecting — and it speaks the Oracle network
+protocol itself. It connected to `127.0.0.1/XEPDB1` and reported
+`Oracle Database 21c Express Edition Release 21.0.0.0.0` with **no Oracle Instant Client installed
+anywhere**, on Windows or in WSL2.
+
+**Decision:** `pip install oracledb` in `03_python_setup.sh`, and nothing else. This is the larger
+simplification of the two: `Import-PgLibrary` replaces a DLL download with a pip install, but
+`Import-OraLibrary` also implies a client installation that disappears completely.
 
 ### Where the runtime lives
 

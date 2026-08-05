@@ -22,20 +22,20 @@ probably right. If it adds abstraction, indirection or defensive layers, it is p
 ## Current state — read this before assuming anything works
 
 The repository is early. **Timesheets** is complete. **StackExchange** is being built step by step and
-imports the files into SQL Server and PostgreSQL and streams between them. MongoDB and MinIO are
-still missing.
+imports the files into SQL Server, PostgreSQL and Oracle and streams between all three. MongoDB and
+MinIO are still missing.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
-| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server and PostgreSQL, and streaming table to table in all four directions. No MongoDB or MinIO yet. |
-| `lib/` | Ten functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for both `sql` and `pg`. Oracle, MongoDB and MinIO are empty. |
+| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, and streaming table to table. No MongoDB or MinIO yet. **The Oracle cells have no committed output yet** — they were written without running the notebook, so step through them once and commit what they print. |
+| `lib/` | Fifteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`. MongoDB and MinIO are empty. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
 | `05_sample_data_setup.py` | Timesheets, plus the StackExchange **download**. The upload of those files to MinIO is not ported yet, and neither is the Geodata block. They come back with their scenarios. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server and PostgreSQL. It grows one block per ported scenario and per provider. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle and PostgreSQL. It grows one block per ported scenario and per provider. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -83,40 +83,16 @@ load-bearing: `06_test_connections.py` used to fail with an `08001` handshake er
 about four seconds after `docker compose up`. The sibling repository never noticed, because its `05`
 spends minutes downloading sample data. Do not check the container log for the init script's
 "complete" message instead — `docker logs` keeps the output of earlier runs, so it matches
-immediately after a restart. PostgreSQL has its own wait now; Oracle will need one too,
-and it takes far longer to start than either of them.
+immediately after a restart. All three databases have their own wait now. Oracle's is a shell
+function rather than a one-liner, because `sqlplus` takes its query on stdin, and it gets 15 minutes
+instead of 5, because Oracle takes far longer to start than the other two.
 
 ## The StackExchange port — remaining steps
 
 The scenario is being built in small steps, deliberately not in the order of the sibling's demo, so
 that each step settles one design question. Done: the sample data, reading the XML, the SQL Server
-import, the PostgreSQL import, and streaming table to table. What is left, in the suggested order:
-
-### Oracle
-
-The decisions already taken, so nobody has to rediscover them:
-
-- **Driver: `oracledb`.** Thin mode is expected to need no Oracle Instant Client at all, which would be
-  a bigger simplification than the DLL download it replaces. **This is not measured yet** — the entry
-  "Getting a driver" in `DIFFERENCES.md` is marked accordingly and this step settles it.
-- **`pip install oracledb`** has to be added to `03_python_setup.sh` and to the pip block in
-  `README.md`. An agent cannot run it: `pip install` is on the deny list in `.claude/settings.json`, so
-  the repository owner runs `03_python_setup.sh` for WSL2 and the pip line for Windows, where the
-  notebooks run.
-- **Case: upper.** Oracle folds unquoted identifiers to UPPER CASE, the inverse of PostgreSQL. The rule
-  agreed with the owner is to use whatever case is natural for that database — camel case for SQL
-  Server, lower for PostgreSQL, upper for Oracle. The lower-casing that `import_*_table` does *for
-  matching* is case-agnostic and already handles it; only `_quote_identifier` differs, upper instead of
-  lower.
-- **Bulk insert:** Oracle has no `COPY`. `executemany` with array DML is the fast path, so this will
-  look more like the SQL Server version than the PostgreSQL one. **Measure first** whether raw strings
-  work, as they do for PostgreSQL, or whether the values have to be converted, as for SQL Server. Both
-  earlier answers were surprising; do not guess this one either.
-- **`04_docker_compose.sh` needs a third wait.** Oracle takes far longer to start than either of the
-  others, so this matters more here, not less.
-- **`06_test_connections.py` needs an Oracle block.** The sibling connects to `127.0.0.1/XEPDB1` as
-  user `stackexchange`. Note that `Connect-OraInstance` has no `-Database` — the service name is part
-  of `-Instance` — and it has an `-AsSysdba` switch that nothing in the demo uses.
+import, the PostgreSQL import, streaming table to table, and Oracle. What is left, in the suggested
+order:
 
 ### MongoDB
 
@@ -258,9 +234,10 @@ which is what VS Code and Jupyter do. Modules that live next to the notebook (`i
 are imported directly, without the `sys.path` dance.
 
 Runtime dependencies, all installed with plain `pip` into the system interpreter today:
-`pyodbc`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally needs the
-[Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name is
-hard-coded in `connect_sql_instance.py`. There is no `requirements.txt` and no virtual environment
+`pyodbc`, `psycopg[binary]`, `oracledb`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally
+needs the [Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name
+is hard-coded in `connect_sql_instance.py`. Oracle and PostgreSQL need nothing of the kind:
+`oracledb` runs in thin mode and speaks the Oracle protocol itself, so there is no Instant Client. There is no `requirements.txt` and no virtual environment
 yet; `README.md` says so and calls it "quick and dirty". Do not add either one without being asked.
 
 ## Deliberate decisions — do not "fix" these

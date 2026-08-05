@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.append(str((Path(__file__).parent / "lib").resolve()))
 
+from connect_ora_instance import connect_ora_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
 from connect_sql_instance import connect_sql_instance  # noqa: E402
 
@@ -35,6 +36,10 @@ stackexchange = {
     "sql_login": "StackExchange",
     "sql_password": "Passw0rd!",
     "sql_database": "StackExchange",
+    # Oracle has no separate database: the service name is part of the instance
+    "ora_instance": "127.0.0.1/XEPDB1",
+    "ora_user": "stackexchange",
+    "ora_password": "Passw0rd!",
     "pg_instance": "127.0.0.1",
     "pg_user": "stackexchange",
     "pg_password": "Passw0rd!",
@@ -50,6 +55,15 @@ stackexchange["sql_connection"] = connect_sql_instance(
 )
 
 stackexchange["sql_connection"].close()
+
+stackexchange["ora_connection"] = connect_ora_instance(
+    instance=stackexchange["ora_instance"],
+    username=stackexchange["ora_user"],
+    password=stackexchange["ora_password"],
+    enable_exception=True
+)
+
+stackexchange["ora_connection"].close()
 
 stackexchange["pg_connection"] = connect_pg_instance(
     instance=stackexchange["pg_instance"],

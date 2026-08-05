@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has ten. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has fifteen. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -142,7 +142,63 @@ The counterpart of `import_sql_table`, and the call sites are identical. Two thi
 `import_sql_table` lower cases as well, so that the two functions stay siblings. It is harmless there,
 because `cursor.description` reports the names as SQL Server stores them.
 
-### `get_sql_data_reader(connection, table=None, query=None, enable_exception=False)` and `get_pg_data_reader(...)`
+### `connect_ora_instance(instance, username=None, password=None, as_sysdba=False, pooled_connection=False, enable_exception=False)`
+
+Returns an open `oracledb.Connection`, or `None` on failure. **There is no `database` parameter**,
+because `Connect-OraInstance` has none either — for Oracle the service name is part of the instance,
+so this is called with `127.0.0.1/XEPDB1`. `as_sysdba` is the port of `-AsSysdba`; no demo uses it.
+
+`oracledb` runs in **thin mode**, which speaks the Oracle network protocol itself, so no Oracle
+Instant Client is installed anywhere in this repository. That is a bigger simplification than the
+`Import-OraLibrary` DLL download it replaces.
+
+Two things this function does that its siblings do not:
+
+- `pooled_connection=True` really pools, through `oracledb.create_pool`. This is the third answer
+  to the same question: Npgsql and Oracle's ADO.NET provider pool through the connection string,
+  psycopg keeps pooling in a separate package, and `oracledb` brings its own. A connection taken
+  from a pool returns to it when it is closed, rather than being closed.
+- It sets **`oracledb.defaults.fetch_lobs = False`**, so a CLOB arrives as a `str`. That default is
+  read when a connection is created, which is why it has to be set here and not where the rows are
+  read. See the entry in `DIFFERENCES.md` — without it a `CLOB` is a lazy handle that *prints* as
+  its own text, and streaming one into pyodbc fails.
+
+### `invoke_ora_query(connection, query, as_type="DataFrame", parameter_values=None, enable_exception=False)`
+
+The same shape and the same `as_type` values as its two siblings, and the least work of the three
+where the parameters are concerned: Oracle's own bind variable syntax **is** `:name`, so a query that
+already uses it passes through untouched and only `@name` has to be renamed. The regex is identical
+in all three files; only the replacement differs.
+
+### `write_ora_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+
+Loads a pandas DataFrame, or the rows of a `data_reader`, into `table` with `executemany` in batches
+— the same shape as `write_sql_table`, because Oracle has no `COPY`. Columns are matched **case
+insensitively**, so a frame with `CreationDate` fills the `CREATIONDATE` column.
+
+The one line that is not in either sibling is `cursor.setinputsizes(...)`, declaring the `TIMESTAMP`
+columns. Without it the milliseconds are silently dropped — see below.
+
+### `import_ora_table(connection, path, table, batch_size=1000, encoding="utf-8-sig", column_map=None, truncate_table=False, enable_exception=False)`
+
+The third counterpart of `import_sql_table`, and the call sites are identical. What is inside sits
+between the other two, which is the most interesting thing about it:
+
+- **Two converters, not fourteen and not none.** Oracle converts the numbers out of their strings
+  without being asked, so `_CONVERTERS` holds only `TIMESTAMP` and `DATE`. A column type that is not
+  in the table keeps the string it came from — the inverse of `import_sql_table`, where a missing
+  entry is an error, because there a missing converter means a value would be bound wrongly.
+- **`setinputsizes` for the TIMESTAMP columns, and only those.** oracledb binds a Python `datetime`
+  as `DB_TYPE_DATE`, and an Oracle `DATE` holds whole seconds. Converting is therefore not enough:
+  the columns have to be declared as `DB_TYPE_TIMESTAMP` or the fractional seconds disappear without
+  an error. Declaring the CLOB column as well was measured **30 times slower**, so it is left alone
+  and a 5440 character `AboutMe` reaches the CLOB bound by its Python type.
+- **Identifiers are upper cased.** Oracle folds unquoted identifiers to `UPPER CASE`, the exact
+  inverse of PostgreSQL, and the tables of this repository are created unquoted. The lower casing
+  that the import does *for matching* is case agnostic and needed no change; only
+  `_quote_identifier` differs.
+
+### `get_sql_data_reader(connection, table=None, query=None, enable_exception=False)`, `get_ora_data_reader(...)` and `get_pg_data_reader(...)`
 
 Run `SELECT * FROM table`, or `query`, and return the open cursor. That cursor **is** the data reader:
 `Get-SqlDataReader` returns a `DbDataReader` and disposes the command behind it, but in Python the
@@ -168,12 +224,12 @@ a different name for them. A tick marks what exists:
 
 | Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
 | --- | --- | --- | --- | --- | --- |
-| Connect | ✔ `connect_sql_instance` | `connect_ora_instance` | ✔ `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
-| Query, all at once | ✔ `invoke_sql_query` | `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
+| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
+| Query, all at once | ✔ `invoke_sql_query` | ✔ `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
 | Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | `read_mdb_collection` | — |
-| Cursor for streaming into a writer | ✔ `get_sql_data_reader` | `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
-| Bulk write | ✔ `write_sql_table` | `write_ora_table` | ✔ `write_pg_table` | `write_mdb_collection` | — |
-| File → table | ✔ `import_sql_table` | `import_ora_table` | ✔ `import_pg_table` | — | — |
+| Cursor for streaming into a writer | ✔ `get_sql_data_reader` | ✔ `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
+| Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | `write_mdb_collection` | — |
+| File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
 | Object storage | — | — | — | — | `get_mio_file`, `get_mio_file_list`, `set_mio_file`, `remove_mio_file` |
@@ -184,8 +240,9 @@ column metadata to return and already streams, and MinIO stores whole files, so 
 
 Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
 which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
-`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo` when their scenarios arrive), so those two cells
-of the grid disappear.
+`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo` when its scenario arrives), so those two cells
+of the grid disappear. For Oracle that saved more than the download: `oracledb` in thin mode needs no
+Oracle Instant Client at all.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.
