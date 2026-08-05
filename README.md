@@ -167,7 +167,7 @@ for each of them:
 | --- | --- | --- |
 | `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
 | `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc` |
-| `04_docker_compose.sh` | root | Starts the containers |
+| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server has created the demo databases |
 | `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
 | `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |
 

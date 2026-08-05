@@ -46,6 +46,14 @@ The setup runs Python **inside WSL2**, from a pyenv installation that belongs to
 - Steps that need Python must **not** run `--user root`. `/root` is `drwx------`, so root's home is
   invisible to the user that owns the pyenv installation.
 
+`04_docker_compose.sh` does not return until SQL Server has created the demo databases. That wait is
+load-bearing: `06_test_connections.py` used to fail with an `08001` handshake error because it ran
+about four seconds after `docker compose up`. The sibling repository never noticed, because its `05`
+spends minutes downloading sample data. Do not check the container log for the init script's
+"complete" message instead — `docker logs` keeps the output of earlier runs, so it matches
+immediately after a restart. When a scenario adds Oracle or PostgreSQL, it needs its own wait here;
+Oracle in particular takes far longer to start than SQL Server.
+
 ## Demo notebooks are stepped through, never run
 
 `demo/01_timesheets.ipynb` is opened in VS Code and executed **cell by cell**, telling a story as it
