@@ -94,7 +94,10 @@ default. That is how `sys.path.append(str(Path("../lib").resolve()))` finds the 
 
 - Setup: Excel files will be created from sample data
 - Excel files will be read into a pandas DataFrame
+- Three ways to insert a row are compared: building the statement as a string, bind variables, bulk insert
 - The DataFrame will be written into a SQL Server database
+- An Excel report with two charts will be created from data in the SQL Server database
+- The report will be read back in
 
 The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/sample.json`.
 
