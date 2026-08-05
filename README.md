@@ -37,7 +37,7 @@ repository is being ported scenario by scenario:
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
 | StackExchange demo | In progress, see `demo/02_stackexchange.ipynb` |
-| `lib/` | Eight functions, for SQL Server and PostgreSQL |
+| `lib/` | Ten functions, for SQL Server and PostgreSQL |
 | Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
@@ -111,10 +111,10 @@ The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/s
 - The files are read line by line, because every row is valid XML on its own
 - Data from the XML files will be imported into a SQL Server database
 - The same files will be imported into a PostgreSQL database, which needs a different approach
+- Data will be streamed from table to table, also between the two database systems
 
 This scenario is still being built. Compared to the PowerShell version it is missing the import into
-Oracle, the streaming of data between databases and database systems, the import into MongoDB, and
-the upload to and download from MinIO.
+Oracle, the import into MongoDB, and the upload to and download from MinIO.
 
 
 

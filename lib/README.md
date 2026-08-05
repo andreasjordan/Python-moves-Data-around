@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has eight. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has ten. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -51,23 +51,30 @@ Runs a query and returns the whole result in memory.
   string in the query will be mangled.
 - A statement that returns no columns (DDL, `INSERT`, `TRUNCATE`) is committed unless the connection is
   in autocommit mode, and the function returns `None`.
+- **A `SELECT` is committed too.** DB-API opens a transaction for a read as well, and a connection left
+  idle in one keeps its locks. `invoke_pg_query` has the same line, and there it is the difference
+  between a working demo and a `TRUNCATE` that hangs forever.
 - `query_timeout` is present but commented out — pyodbc has no built-in statement timeout.
 
-### `write_sql_table(connection, table, data=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+### `write_sql_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
 
-Bulk-loads a pandas DataFrame into `table`, which may be `schema.table`. Reads the target's column list
-with `SELECT TOP 0 *`, reindexes the DataFrame onto exactly those columns — extra columns are dropped,
-missing ones become `NULL` — then inserts with `fast_executemany` in batches of `batch_size`, committing
-after each batch and printing rows done, percentage and rows/sec. `truncate_table=True` empties the
-table first.
+Bulk-loads a pandas DataFrame, or the rows of a `data_reader`, into `table`, which may be
+`schema.table`. Reads the target's column list with `SELECT TOP 0 *` and matches the source columns
+against it **case insensitively** — extra columns are dropped, missing ones become `NULL` — then inserts
+with `fast_executemany` in batches of `batch_size`, committing after each batch and printing rows done,
+percentage and rows/sec. `truncate_table=True` empties the table first.
 
 Dropping extra columns and writing `NULL` for missing ones is not a shortcut — it is what the sibling's
 `Write-SqlTable` does for its `-Data` parameter as well, because it fills the target's columns from
 each source object and leaves the rest untouched.
 
-Two things the sibling has and this function does not, both waiting for the scenarios that need them:
-`-DataReader`, for streaming from one database into another without going through memory, and
-`-Transaction`.
+Either `data` or `data_reader`, never both. With `data_reader` the rows come from another table -
+possibly in another database system - and are read in batches, so the source is never fully in memory.
+`data_reader_row_count` only feeds the percentage in the progress output, because a reader does not
+know how many rows are still coming. A source column with no matching target column is an error, as it
+is in the sibling.
+
+`-Transaction` is still missing, and waits for the scenario that needs it.
 
 ### `import_sql_table(connection, path, table, batch_size=1000, encoding="utf-8-sig", column_map=None, truncate_table=False, enable_exception=False)`
 
@@ -111,10 +118,10 @@ parameters: psycopg has real named parameters, written `%(name)s`, so the rewrit
 `:name` and `@name` and hands the dictionary over unchanged. `invoke_sql_query` has to count positions
 and reorder the values, because pyodbc has no named parameters at all.
 
-### `write_pg_table(connection, table, data=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+### `write_pg_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
 
-Loads a pandas DataFrame into `table` through `COPY`. The DataFrame columns are matched against the
-table columns **case insensitively**, so a frame with `CreationDate` fills a column called
+Loads a pandas DataFrame, or the rows of a `data_reader`, into `table` through `COPY`. Columns are
+matched against the table columns **case insensitively**, so a frame with `CreationDate` fills a column called
 `creationdate`. `NaN` and `NaT` become `NULL`. `batch_size` no longer splits the work into batches —
 `COPY` is one stream — it only says how often progress is printed.
 
@@ -135,6 +142,25 @@ The counterpart of `import_sql_table`, and the call sites are identical. Two thi
 `import_sql_table` lower cases as well, so that the two functions stay siblings. It is harmless there,
 because `cursor.description` reports the names as SQL Server stores them.
 
+### `get_sql_data_reader(connection, table=None, query=None, enable_exception=False)` and `get_pg_data_reader(...)`
+
+Run `SELECT * FROM table`, or `query`, and return the open cursor. That cursor **is** the data reader:
+`Get-SqlDataReader` returns a `DbDataReader` and disposes the command behind it, but in Python the
+cursor is both at once, so it is simply returned.
+
+The writer that receives it reads it with `fetchmany(batch_size)` and **closes it when it is done** —
+the same ownership as in the sibling, where `Write-SqlTable` disposes the reader it was handed.
+
+Two parameters of the sibling are missing: `-ParameterValues` / `-ParameterTypes`, because supporting
+them would mean copying the whole named-parameter rewrite of `invoke_*_query` into two more files, and
+no demo passes parameters to a reader; and `-QueryTimeout`, for the same reason it is missing from
+`invoke_sql_query`.
+
+**A caveat that is not visible from the call site:** psycopg's normal cursor fetches the whole result
+before the first `fetchmany` returns, so `get_pg_data_reader` streams from the writer's point of view
+but not from the server's. A server-side cursor — `connection.cursor(name=...)` — would change that,
+and is the thing to reach for if a table ever stops fitting in memory.
+
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
@@ -145,7 +171,7 @@ a different name for them. A tick marks what exists:
 | Connect | ✔ `connect_sql_instance` | `connect_ora_instance` | ✔ `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
 | Query, all at once | ✔ `invoke_sql_query` | `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
 | Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | `read_mdb_collection` | — |
-| Cursor for streaming into a writer | `get_sql_data_reader` | `get_ora_data_reader` | `get_pg_data_reader` | — | — |
+| Cursor for streaming into a writer | ✔ `get_sql_data_reader` | `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
 | Bulk write | ✔ `write_sql_table` | `write_ora_table` | ✔ `write_pg_table` | `write_mdb_collection` | — |
 | File → table | ✔ `import_sql_table` | `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |

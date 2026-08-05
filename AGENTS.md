@@ -22,13 +22,14 @@ probably right. If it adds abstraction, indirection or defensive layers, it is p
 ## Current state — read this before assuming anything works
 
 The repository is early. **Timesheets** is complete. **StackExchange** is being built step by step and
-imports the files into SQL Server and PostgreSQL. Streaming, MongoDB and MinIO are still missing.
+imports the files into SQL Server and PostgreSQL and streams between them. MongoDB and MinIO are
+still missing.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
-| `demo/02_stackexchange.ipynb` | Reading the XML files, and importing them into SQL Server and PostgreSQL. No streaming, MongoDB or MinIO yet. |
-| `lib/` | Eight functions: `connect`, `invoke`, `write` and `import` for both `sql` and `pg`. Oracle, MongoDB and MinIO are empty. |
+| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server and PostgreSQL, and streaming table to table in all four directions. No MongoDB or MinIO yet. |
+| `lib/` | Ten functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for both `sql` and `pg`. Oracle, MongoDB and MinIO are empty. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |

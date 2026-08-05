@@ -160,6 +160,35 @@ to `Write-PgTable`.
 passing raw strings fails outright and the fastest path needs the most code. On PostgreSQL, passing
 raw strings is both the fastest path and the least code.
 
+### A read opens a transaction nobody asked for
+
+**The sibling:** an ADO.NET or Npgsql command without an explicit transaction commits itself. There is
+no state left behind after a `SELECT`, and nothing in the sibling ever mentions this.
+
+**Python:** DB-API connections start in manual-commit mode. psycopg opens a transaction for a `SELECT`
+too, and it stays open until it is ended. A connection sitting **idle in transaction** keeps the
+`AccessShareLock` on everything it read.
+
+**Evidence:** after stepping through `demo/02_stackexchange.ipynb` in Jupyter and leaving the kernel
+open, its connection sat idle in transaction holding a lock on `badges`. The next `TRUNCATE TABLE` —
+from a second run of the same notebook — blocked, and so did the run behind it. `pg_blocking_pids`
+showed the chain: the idle kernel blocked run one, which blocked run two. Nothing timed out; they
+would have waited forever.
+
+**Decision:** `invoke_pg_query` and `invoke_sql_query` end the transaction after a read, not only after
+a non-query. SQL Server releases read locks at the end of the statement, so it hurts far less there,
+but the open transaction is the same and the two functions stay siblings.
+
+**Rejected:** making the connections autocommit, which is what ADO.NET effectively does. It would fix
+this class of problem outright, but `import_pg_table` truncates and copies in one transaction so that a
+failed load does not leave the table empty, and autocommit would give that up.
+
+**Still true:** a data reader keeps its transaction open until it is closed, because it has to. Whoever
+opens a source connection for streaming should close it.
+
+**Why it matters:** the failure is a hang, not an error, and it happens in exactly the situation this
+repository is built for — a notebook left open after stepping through it.
+
 ### Named parameters
 
 **The sibling:** ADO.NET has real named parameters, and `Invoke-SqlQuery` also exposes
@@ -178,6 +207,41 @@ so a `:` inside a quoted string in the query would be mangled. There is no equiv
 `-ParameterTypes` in either.
 
 ---
+
+### Streaming from one table into another
+
+**The sibling:** `Get-SqlDataReader` returns a `DbDataReader` — an open result set that yields one row
+at a time — and `Write-SqlTable` hands it straight to `SqlBulkCopy.WriteToServer($reader)`, a single
+call that does the whole transfer.
+
+**Python:** a cursor after `execute()` already is that reader, so `get_sql_data_reader` returns the
+cursor as it is. There is no `WriteToServer` equivalent, so the writer loops: `fetchmany(batch_size)`,
+build the tuples, `executemany` or `COPY`, repeat.
+
+**Consequence, and arguably an improvement:** the loop is on screen. The .NET version hides the
+transfer inside one method call; here the audience sees the batch being fetched, mapped and written.
+
+**Decision:** the writer closes the reader it was handed, mirroring the sibling, where `Write-SqlTable`
+disposes the reader in its `finally`. The alternative — the caller closes it — was rejected only
+because it would diverge from the sibling for no gain.
+
+**Evidence**, 12220 rows, all four directions:
+
+| From | To | Result |
+| --- | --- | --- |
+| SQL Server | SQL Server | 1.00 s |
+| PostgreSQL | SQL Server | 0.88 s |
+| SQL Server | PostgreSQL | 0.31 s |
+| PostgreSQL | PostgreSQL | 0.16 s |
+
+Nothing had to be converted between the systems: psycopg hands out Python objects, pyodbc takes Python
+objects, and the dates, integers and `NULL`s survive unchanged. The two targets that are PostgreSQL are
+the fast ones, for the same reason the file import was — `COPY`.
+
+**Known limitation:** psycopg's normal cursor fetches the whole result before the first `fetchmany`
+returns, so `get_pg_data_reader` streams from the writer's point of view but not from the server's. A
+server-side cursor would change that. `Get-PgDataReader` does stream, so this is a real difference and
+not just an implementation detail.
 
 ## Excel
 
