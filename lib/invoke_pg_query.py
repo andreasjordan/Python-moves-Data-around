@@ -59,6 +59,14 @@ def invoke_pg_query(
             rows = cursor.fetchall()
             print(f"[VERBOSE] Retrieved {len(rows)} rows")
 
+            # DIFFERENCE: DB-API opens a transaction for a SELECT as well, and it stays open
+            # until it is ended. A connection left "idle in transaction" keeps its locks, so the
+            # next TRUNCATE anywhere - a second run of the notebook, the sibling demo - waits for
+            # it forever. An ADO.NET command without an explicit transaction commits itself, so
+            # the sibling never has to think about this.
+            if not connection.autocommit:
+                connection.commit()
+
             if as_type == "list":
                 return rows
 

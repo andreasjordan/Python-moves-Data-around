@@ -76,6 +76,13 @@ def invoke_sql_query(
             rows = cursor.fetchall()
             print(f"[VERBOSE] Retrieved {len(rows)} rows")
 
+            # DB-API opens a transaction for a SELECT as well, and it stays open until it is
+            # ended. SQL Server releases the read locks at the end of the statement, so this is
+            # far less painful than it is on PostgreSQL, but the open transaction is the same
+            # and invoke_pg_query has to do it, so this does too.
+            if not connection.autocommit:
+                connection.commit()
+
             if as_type == "list":
                 return rows
 
