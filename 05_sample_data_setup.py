@@ -1,17 +1,21 @@
 import json
+import shutil
+import subprocess
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
-data_path = Path(__file__).parent / "data" / "timesheets"
+timesheets_path = Path(__file__).parent / "data" / "timesheets"
+stackexchange_path = Path(__file__).parent / "data" / "stackexchange"
 
 # TimeSheets
 # Excel files will be generated from sample.json
 print("Setting up Excel files for TimeSheets")
 
-sample_data = json.loads((data_path / "sample.json").read_text(encoding="utf-8"))
+sample_data = json.loads((timesheets_path / "sample.json").read_text(encoding="utf-8"))
 
 # One workbook per department, one worksheet per person inside it
 departments = sorted({row["Department"] for row in sample_data})
@@ -53,8 +57,31 @@ for department in departments:
         for column, width in {"A": 12, "B": 12, "C": 12, "D": 20, "E": 20}.items():
             worksheet.column_dimensions[column].width = width
 
-    file = data_path / f"{department}.xlsx"
+    file = timesheets_path / f"{department}.xlsx"
     workbook.save(file)
     print(f"Created {file.name} with {len(persons)} worksheets and {len(department_data)} rows")
+
+
+# StackExchange
+# XML files will be downloaded from archive.org/download/stackexchange
+site = "dba.meta"
+archive = stackexchange_path / "tmp.7z"
+
+print(f"Downloading StackExchange data for {site}")
+
+url = f"https://archive.org/download/stackexchange/{site}.stackexchange.com.7z"
+with urllib.request.urlopen(url) as response, archive.open("wb") as file:
+    shutil.copyfileobj(response, file)
+
+print(f"Downloaded {archive.name} with {archive.stat().st_size / 1024 / 1024:.1f} MB")
+
+# 7za is installed by 02_wsl2_setup.sh, the same way the sibling repository uses it.
+# "e" extracts all files of the archive into the working directory.
+subprocess.run(["7za", "e", "-y", archive.name], cwd=stackexchange_path, check=True, capture_output=True)
+
+archive.unlink()
+
+for file in sorted(stackexchange_path.glob("*.xml")):
+    print(f"Created {file.name} with {file.stat().st_size / 1024 / 1024:.1f} MB")
 
 print("Finished")

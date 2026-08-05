@@ -21,17 +21,19 @@ probably right. If it adds abstraction, indirection or defensive layers, it is p
 
 ## Current state — read this before assuming anything works
 
-The repository is early. Only the **Timesheets** scenario exists, and only for SQL Server.
+The repository is early. **Timesheets** is complete. **StackExchange** is being built step by step and
+has only reached the point of reading the files; no second database provider exists yet.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
+| `demo/02_stackexchange.ipynb` | Only the first section: reading the XML files, no database involved. |
 | `lib/` | Three functions, SQL Server only: `connect_sql_instance`, `invoke_sql_query`, `write_sql_table`. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
-| `05_sample_data_setup.py` | Timesheets only. The StackExchange and Geodata blocks of the sibling's `05_sample_data_setup.ps1` were dropped rather than ported; they come back with their scenarios. |
+| `05_sample_data_setup.py` | Timesheets, plus the StackExchange **download**. The upload of those files to MinIO is not ported yet, and neither is the Geodata block. They come back with their scenarios. |
 | `06_test_connections.py` | SQL Server / Timesheets only. It grows one block per ported scenario. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.

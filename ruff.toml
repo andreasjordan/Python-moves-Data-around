@@ -56,6 +56,12 @@ ignore = [
     "S105",
     "S106",
     "S107",
+
+    # 05_sample_data_setup.py calls 7za to unpack the downloaded archive, exactly as the
+    # sibling repository does. The argument list is fixed, nothing goes through a shell, and
+    # the script only ever runs inside the WSL2 that installed the binary in the first place.
+    "S603",
+    "S607",
 ]
 
 # Import sorting (I), the docstring rules (D) and `ruff format` are deliberately left off.
