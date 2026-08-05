@@ -92,6 +92,53 @@ stackexchange["mdb_connection"] = connect_mdb_instance(
 # close - the client behind it does.
 stackexchange["mdb_connection"].client.close()
 
+
+# Geodata
+print("Setting up variables and connections for Geodata")
+
+geodata = {
+    "sql_instance": "127.0.0.1",
+    "sql_login": "Geodata",
+    "sql_password": "Passw0rd!",
+    "sql_database": "Geodata",
+    "ora_instance": "127.0.0.1/XEPDB1",
+    "ora_user": "geodata",
+    "ora_password": "Passw0rd!",
+    "pg_instance": "127.0.0.1",
+    "pg_user": "geodata",
+    "pg_password": "Passw0rd!",
+    "pg_database": "geodata"
+}
+
+geodata["sql_connection"] = connect_sql_instance(
+    instance=geodata["sql_instance"],
+    database=geodata["sql_database"],
+    username=geodata["sql_login"],
+    password=geodata["sql_password"],
+    enable_exception=True
+)
+
+geodata["sql_connection"].close()
+
+geodata["ora_connection"] = connect_ora_instance(
+    instance=geodata["ora_instance"],
+    username=geodata["ora_user"],
+    password=geodata["ora_password"],
+    enable_exception=True
+)
+
+geodata["ora_connection"].close()
+
+geodata["pg_connection"] = connect_pg_instance(
+    instance=geodata["pg_instance"],
+    database=geodata["pg_database"],
+    username=geodata["pg_user"],
+    password=geodata["pg_password"],
+    enable_exception=True
+)
+
+geodata["pg_connection"].close()
+
 print("Finished")
 
 print("MinIO: http://127.0.0.1:9001/login")

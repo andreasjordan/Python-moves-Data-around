@@ -297,6 +297,37 @@ opens a source connection for streaming should close it.
 **Why it matters:** the failure is a hang, not an error, and it happens in exactly the situation this
 repository is built for — a notebook left open after stepping through it.
 
+### A failed statement poisons the whole connection
+
+The other half of the same problem, found while porting the Geodata scenario.
+
+**The sibling:** an Npgsql command without an explicit transaction commits or fails on its own. A failed
+statement is over when it has failed, and the next one runs normally.
+
+**Python:** PostgreSQL aborts the **entire transaction** when any statement in it fails. The connection
+then answers every further statement with
+`current transaction is aborted, commands ignored until end of transaction block` — until somebody
+rolls back. `invoke_pg_query` printed `[ERROR]`, returned `None`, and left the connection in exactly
+that state.
+
+**Evidence:** a `DROP TABLE` for a table that did not exist yet — the ordinary way to make a script
+re-runnable. It failed as expected, and then the `CREATE TABLE` after it failed too, and so did
+everything else on that connection. The reported error named the aborted transaction, not the `DROP`
+that caused it.
+
+**Decision:** roll back in the failure path of `invoke_pg_query`, and in `invoke_sql_query` and
+`invoke_ora_query` as well. Only PostgreSQL needs it — SQL Server and Oracle let the next statement
+run — but a failed statement should not leave anything behind on any of them, and the three functions
+stay siblings.
+
+**Already correct elsewhere:** `import_pg_table` and `write_pg_table` have rolled back on failure from
+the start. `invoke_pg_query` was the one that did not, which is what made it hard to spot: two of the
+three PostgreSQL functions were right.
+
+**Why it matters:** in a notebook this is worse than a plain error. One mistyped query, and every cell
+after it fails with a message that does not mention the mistake — on a projector, in front of an
+audience, with the real cause already scrolled off the screen.
+
 ### Named parameters
 
 **The sibling:** ADO.NET has real named parameters, and `Invoke-SqlQuery` also exposes
@@ -313,6 +344,25 @@ to `%(name)s` and passes the dict through untouched.
 **Limitation, accepted:** the rewrite is a regular expression that does not know about string literals,
 so a `:` inside a quoted string in the query would be mangled. There is no equivalent of
 `-ParameterTypes` in either.
+
+**And a limitation that was not accepted, because the Geodata scenario walked straight into it.**
+Both SQL Server and PostgreSQL use a doubled colon as an operator — `geometry::STGeomFromText(...)` for
+a type method, `value::numeric` for a cast — and the rewrite read the second colon as the start of a
+parameter name:
+
+| Query | Before |
+| --- | --- |
+| `geometry::STGeomFromText(@wkt, 4326)` | `KeyError: "Named parameter 'STGeomFromText' not provided"` |
+| `SELECT laenge::numeric … WHERE x = :abschnitt` | `KeyError: "Named parameter 'numeric' not provided"` |
+
+The very first statement of `demo/03_geodata.ipynb` is the first one in that table, so nothing in that
+scenario could have worked. **Fix:** a `(?<!:)` in front of the colon, in all three functions. Checked
+against `:a::text`, where a parameter and a cast sit next to each other, and against every query the
+three notebooks use.
+
+**Worth noting for its own sake:** this only became visible in the third scenario. The two before it
+never wrote a doubled colon, and the ADO.NET side cannot have the bug at all, because it never rewrites
+anything.
 
 ---
 
@@ -364,6 +414,131 @@ rounds the fractions by design rather than by accident.
 returns, so `get_pg_data_reader` streams from the writer's point of view but not from the server's. A
 server-side cursor would change that. `Get-PgDataReader` does stream, so this is a real difference and
 not just an implementation detail.
+
+## Geodata
+
+### The namespace nobody mentions
+
+**The sibling:** `Import-GpxFile` reads `([xml]$content).gpx`, then `$gpx.trk`, `$track.trkseg`,
+`$segment.trkpt`. PowerShell's XML adapter resolves those names without caring which namespace the
+document declares, so the function never mentions one.
+
+**Python:** `ElementTree` puts the namespace into every tag. A `<trk>` in a document that declares
+`xmlns="http://www.topografix.com/GPX/1/1"` arrives as `{http://www.topografix.com/GPX/1/1}trk`, and
+`root.findall("trk")` finds nothing.
+
+**Evidence, and this is the part that matters:** the twenty sample files do not agree on the namespace.
+Fourteen declare GPX **1/1**, six declare GPX **1/0** — both berlin.de downloads, from the same
+archive. So a port that pins the namespace to the version it happened to test against would silently
+return **zero rows for six of the twenty files**, with no error and a plausible-looking result for the
+other fourteen.
+
+**Decision:** match with the `{*}` wildcard — `root.findall("{*}trk")` — which accepts any namespace and
+is the closest thing Python has to `$gpx.trk`.
+
+**Rejected:** registering the namespace, or stripping it from the document before parsing. Both work
+for one version and quietly fail for the other, which is the failure this repository keeps meeting.
+
+**A place where Python is shorter, for once:** a GPX name is often a CDATA section, and the sibling has
+to check `$name.'#cdata-section'` and fall back. `ElementTree` hands over the text of a CDATA section
+like any other text, so `_name_of` is two lines with no special case.
+
+### A bind parameter over 4000 characters
+
+**The sibling:** `Invoke-OraQuery` carries a guard that looks like an afterthought and is not:
+
+```powershell
+} elseif ($ParameterValues[$parameterName].Length -gt 4000) {
+    $parameter.OracleDbType = 'CLOB'
+}
+```
+
+**Python:** `invoke_ora_query` was written without it, because nothing in the StackExchange scenario
+passes a long parameter. The GeoJSON import does: a country geometry serialised as JSON runs from 125
+characters to 1573724, and 190 of the 258 features are over 4000.
+
+**Evidence** — `countries.geojson` into `SDO_UTIL.FROM_GEOJSON(:geometry)`:
+
+| | Result |
+| --- | --- |
+| without the guard | **187 of 258 rows**, 71 failures with `ORA-01461: can bind a LONG value only for insert into a LONG column` |
+| with the guard | **258 of 258 rows**, including Canada at 1.5 MB |
+
+**Decision:** the same guard, the same limit — declare any string parameter longer than 4000
+characters as `oracledb.DB_TYPE_CLOB` via `setinputsizes`.
+
+**The part worth pausing on:** this is the exact opposite of the decision two entries up. In the bulk
+path, declaring a CLOB column costs 30× and is therefore avoided; here, declaring it is the only way
+the value arrives at all. The difference is where the value is going — `executemany` into a `CLOB`
+*column* works undeclared, while a single `execute` binding into a *function argument* does not,
+because oracledb sends it as a LONG and Oracle only accepts a LONG bind for a LONG column. Same driver,
+same data type, opposite answers.
+
+**Why it matters:** the failure is loud, but it is also partial — 187 rows landed and looked fine. A
+row count is not a check.
+
+### Selecting a geometry column, three answers
+
+**The sibling:** notes in the demo that `SELECT * FROM dbo.berlin_tours` does not work and records the
+error — `DataReader.GetFieldType(2) returned null` — then selects `geometry.STAsText()` instead.
+
+**Python:** the same statement fails, with a different message, and the three providers disagree about
+what a geometry column even is over the wire:
+
+| | `SELECT *` on the geometry column |
+| --- | --- |
+| SQL Server | fails: `ODBC SQL type -151 is not yet supported. column-index=2 type=-151` |
+| PostgreSQL | succeeds, and returns a `str` — the hex EWKB, `0102000020E6100000…` |
+| Oracle | an `SDO_GEOMETRY` object, which is why the demo asks for WKT instead |
+
+**Consequence:** the lesson survives the port intact, and gets slightly better. The sibling shows that
+you have to convert on the way out; here you can also see that "cannot represent it" and "hands you
+something unusable" are different failures, and only one of them tells you so.
+
+**Decision:** the demo reads geometry back as WKT everywhere — `geometry.STAsText()`,
+`SDO_UTIL.TO_WKTGEOMETRY(...)` — exactly as the sibling does. WKT is the common currency between all
+three, in both directions.
+
+### Except on Oracle, where the round trip is not symmetrical
+
+**The sibling:** puts one line in `03_geodata.ps1` with a comment — `SDO_UTIL.TO_WKTGEOMETRY` fails
+with `ORA-13199: wk buffer merge failure` — and a link to a Stack Overflow question about it.
+
+**Python:** the same, and looking closer makes it worse rather than better. It is not that the call
+fails; it is that it fails for *some* rows, and one failing row takes the whole statement with it.
+
+**Evidence:**
+
+| | |
+| --- | --- |
+| `SELECT … TO_WKTGEOMETRY(geometry) FROM countries` | fails, `ORA-13199` |
+| the same, row by row | most convert, a fifth to a quarter fail |
+| `FETCH FIRST 3 ROWS ONLY` | *succeeds*, because those three happen to be convertible |
+| the GPX table, rectified on the way in | **35 of 49 convert, 14 fail** |
+
+**Four explanations checked, none of them right:**
+
+- **Not size.** Canada is the largest geometry in the file, 1.5 MB of JSON, and it converts.
+- **Not validity.** `SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT` returns the same
+  `13367 [Element <1>] [Ring <1>]` for rows that convert and rows that do not.
+- **Not a missing `RECTIFY_GEOMETRY`.** Rectifying on the way out rescued 10 of 57 in one run. And the
+  GPX geometries *are* rectified on the way in, and 14 of 49 still failed.
+- **Not deterministic, and this is the finding.** Four runs over identical data gave **59, 57, 49 and
+  49** failures — and the membership moves as well: Oman and Uzbekistan converted in one run and failed
+  in another. So it is not a property of particular geometries that could be cleaned up in advance.
+  It is the same stored geometry getting a different answer from one call to the next.
+
+**Consequence for the notebook:** no number can be written into the narration as a fact, because the
+cell above it will disagree on the next run. The markdown says "around a fifth" and lists the four
+counts observed, rather than claiming one.
+
+**Decision:** leave it in the notebook as a dead end, with the investigation written out. The
+`BERLIN_TOURS` cell reads a `COUNT(*)` rather than WKT, because a `FETCH FIRST 3 ROWS ONLY` there is a
+coin flip and a demo cell should not be one.
+
+**The real consequence, and it is worth saying out loud:** on SQL Server and PostgreSQL, WKT goes in
+and comes back out. On Oracle it goes in reliably and does not always come back. That asymmetry is a
+property of Oracle Spatial, not of the port — but it is the port that found out how big it is.
 
 ## MongoDB
 

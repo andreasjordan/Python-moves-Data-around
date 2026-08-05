@@ -18,8 +18,11 @@ def _prepare_query_and_params(query, parameter_values):
                 raise KeyError(f"Named parameter '{name}' not provided")
             return f"%({name})s"
 
+        # The (?<!:) keeps a doubled colon out of it. PostgreSQL writes value::numeric and
+        # SQL Server writes geometry::STGeomFromText(...), and without this the second colon
+        # looks exactly like a named parameter.
         query_with_placeholders = re.sub(
-            r"(?:\:(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
+            r"(?:(?<!:):(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
             _replace_named,
             query,
         )
@@ -95,6 +98,13 @@ def invoke_pg_query(
             return None
 
     except Exception as e:
+        # PostgreSQL aborts the whole transaction when a single statement fails, so without this
+        # the connection is unusable for everything that follows: every later query answers
+        # "current transaction is aborted, commands ignored until end of transaction block".
+        # import_pg_table and write_pg_table already roll back on failure; this one did not.
+        if not connection.autocommit:
+            connection.rollback()
+
         message = f"Query failed: {str(e)}"
         if enable_exception:
             raise Exception(message)

@@ -47,8 +47,14 @@ Runs a query and returns the whole result in memory.
 - `parameter_values` accepts a list or tuple, which is passed straight through to pyodbc's positional
   `?` placeholders, or a dict, in which case `:name` and `@name` in the query are rewritten to `?` in
   order of appearance first. pyodbc has no named parameters of its own; that rewrite is a small regex
-  in `_prepare_query_and_params` and it does not know about string literals, so a `:` inside a quoted
-  string in the query will be mangled.
+  in `_prepare_query_and_params`. It does not know about string literals, so a `:` inside a quoted
+  string in the query will be mangled. It **does** know about a doubled colon, so
+  `geometry::STGeomFromText(@wkt, 4326)` and `value::numeric` survive — that cost the Geodata scenario
+  its first statement before it was fixed.
+- **A failed statement rolls back.** PostgreSQL aborts the whole transaction when anything in it
+  fails, so `invoke_pg_query` has to; the other two do it to stay siblings. Without it, one bad query
+  makes every later query on the same connection fail with a message that does not mention the
+  original mistake.
 - A statement that returns no columns (DDL, `INSERT`, `TRUNCATE`) is committed unless the connection is
   in autocommit mode, and the function returns `None`.
 - **A `SELECT` is committed too.** DB-API opens a transaction for a read as well, and a connection left
@@ -169,6 +175,13 @@ The same shape and the same `as_type` values as its two siblings, and the least 
 where the parameters are concerned: Oracle's own bind variable syntax **is** `:name`, so a query that
 already uses it passes through untouched and only `@name` has to be renamed. The regex is identical
 in all three files; only the replacement differs.
+
+One thing it does that the other two do not: **a string parameter longer than 4000 characters is
+declared a `CLOB`**, because Oracle otherwise answers `ORA-01461: can bind a LONG value only for
+insert into a LONG column`. `Invoke-OraQuery` has the same guard with the same limit. Note that this
+is the reverse of what `write_ora_table` wants — declaring a `CLOB` there costs 30× — because a value
+bound into a `CLOB` column and a value bound into a function argument are not the same question. See
+`DIFFERENCES.md`.
 
 ### `write_ora_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
 

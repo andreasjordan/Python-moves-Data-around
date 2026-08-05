@@ -20,8 +20,11 @@ def _prepare_query_and_params(query, parameter_values):
             ordered_params.append(parameter_values[name])
             return "?"
 
+        # The (?<!:) keeps a doubled colon out of it. SQL Server writes
+        # geometry::STGeomFromText(...) and PostgreSQL writes value::numeric, and without this
+        # the second colon looks exactly like a named parameter.
         query_with_placeholders = re.sub(
-            r"(?:\:(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
+            r"(?:(?<!:):(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
             _replace_named,
             query,
         )
@@ -114,6 +117,12 @@ def invoke_sql_query(
             return None
 
     except Exception as e:
+        # SQL Server does not abort the surrounding transaction the way PostgreSQL does, so this
+        # is not strictly needed here - but a failed statement should not leave anything behind,
+        # and invoke_pg_query cannot do without it, so the three functions stay siblings.
+        if not connection.autocommit:
+            connection.rollback()
+
         message = f"Query failed: {str(e)}"
         if enable_exception:
             raise Exception(message)

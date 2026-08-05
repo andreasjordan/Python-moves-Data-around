@@ -42,12 +42,13 @@ repository is being ported scenario by scenario:
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
 | StackExchange demo | Done, see `demo/02_stackexchange.ipynb` |
+| Geodata demo | Done, see `demo/03_geodata.ipynb` |
 | `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
 | Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
-The remaining scenarios — Geodata, PhotoService, ProjectStatus — are described in the sibling
-repository and will follow.
+The remaining scenarios — PhotoService and ProjectStatus — are described in the sibling repository and
+will follow.
 
 
 
@@ -62,9 +63,11 @@ Working today:
 - Microsoft Excel
 - XML files
 
+- GPX files, GeoJSON files
+
 Planned, in the order the scenarios will be ported:
 
-- JSON files, GPX files, JPEG files
+- JPEG files
 
 Deliberately not planned: **MinIO**. The sibling repository uploads the sample files to it and reads
 them back, signing the requests by hand. That is not being ported — MinIO changed its licence, and
@@ -130,6 +133,19 @@ streams the same data into an Azure SQL Database, which needs Azure resources ra
 container, so it is not part of this demo as it stands.
 
 
+
+### Geodata
+
+- Setup: GPX files will be downloaded from berlin.de and michael-mueller-verlag.de, and a GeoJSON file from datahub.io
+- The GPX files are read into a DataFrame of type, name and WKT geometry
+- WKT is the common currency: no driver here can hand a geometry to a database, so the text goes in and the database builds the geometry in the `VALUES` clause
+- The same data goes into SQL Server, PostgreSQL with PostGIS and Oracle Spatial
+- Reading a geometry column back gives three different answers on the three systems, and only one of them is an error
+- For more than a handful of rows: bulk load the text into a staging table, then convert with one `INSERT ... SELECT`
+- As a bonus, GeoJSON goes straight into PostgreSQL and Oracle - SQL Server only speaks WKT
+
+Compared to the PowerShell version this leaves out the "Mauttabelle" bonus, which downloads a German
+toll table by scraping a government website for the newest zip file.
 
 ## Infrastructure
 

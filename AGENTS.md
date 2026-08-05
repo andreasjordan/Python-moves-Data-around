@@ -29,13 +29,14 @@ relational ones. MinIO was dropped on purpose and is not coming — see `DIFFERE
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
 | `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
+| `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
 | `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
-| `05_sample_data_setup.py` | Timesheets, plus the StackExchange **download**. The sibling's upload of those files to MinIO has no counterpart and will not get one. The Geodata block is not ported yet and comes back with its scenario. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB. It grows one block per ported scenario and per provider. |
+| `05_sample_data_setup.py` | Timesheets, the StackExchange download and the Geodata downloads. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL. It grows one block per ported scenario and per provider. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -86,6 +87,23 @@ spends minutes downloading sample data. Do not check the container log for the i
 immediately after a restart. All four databases have their own wait now. Oracle's is a shell
 function rather than a one-liner, because `sqlplus` takes its query on stdin, and it gets 15 minutes
 instead of 5, because Oracle takes far longer to start than the other two.
+
+## The Geodata port — finished, minus one bonus
+
+GPX and GeoJSON into all three relational systems, through WKT. It needed **no new `lib/` function** —
+`invoke_*_query` with `parameter_values` and `write_*_table` already covered it — but it did find three
+real defects in functions the earlier scenarios had been using happily. All three are in
+`DIFFERENCES.md`: the `::` operator being read as a named parameter, a failed statement leaving a
+PostgreSQL connection unusable, and a missing `CLOB` declaration for bind parameters over 4000
+characters.
+
+`demo/import_gpx_file.py` is the only new module, next to `import_xls_timesheet.py`.
+
+**Left out on purpose:** the sibling's **Mauttabelle** bonus, which scrapes
+`balm.bund.de` for the newest zip file, unpacks it and reads a 137530-row Excel. It is the most
+realistic ETL in the sibling and also the most fragile — it breaks whenever that page changes — and
+the decision was to skip it rather than carry a scraper. If it is ever wanted, the sibling code is at
+the end of `demo/03_geodata.ps1`.
 
 ## The StackExchange port — finished
 

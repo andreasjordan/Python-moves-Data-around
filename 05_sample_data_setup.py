@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font
 
 timesheets_path = Path(__file__).parent / "data" / "timesheets"
 stackexchange_path = Path(__file__).parent / "data" / "stackexchange"
+geodata_path = Path(__file__).parent / "data" / "geodata"
 
 # TimeSheets
 # Excel files will be generated from sample.json
@@ -83,5 +84,49 @@ archive.unlink()
 
 for file in sorted(stackexchange_path.glob("*.xml")):
     print(f"Created {file.name} with {file.stat().st_size / 1024 / 1024:.1f} MB")
+
+
+# Geodata
+# GPX files will be downloaded from https://www.berlin.de/sen/uvk/mobilitaet-und-verkehr/verkehrsplanung/radverkehr/radverkehrsnetz/radrouten/gpx/
+# One GPX file will be downloaded from https://www.michael-mueller-verlag.de/de/reisefuehrer/deutschland/berlin-city/gps-daten/
+# GeoJSON file will be downloaded from datahub.io/core/geo-countries
+radrouten_path = geodata_path / "radrouten-berlin"
+
+# Start from a clean directory, so a renamed file in the archive does not linger
+for file in list(geodata_path.glob("*.gpx")) + list(geodata_path.glob("*.geojson")):
+    file.unlink()
+if radrouten_path.exists():
+    shutil.rmtree(radrouten_path)
+radrouten_path.mkdir()
+
+print("Downloading GPX data from berlin.de")
+
+archive = radrouten_path / "tmp.7z"
+with urllib.request.urlopen(
+    "https://www.berlin.de/sen/uvk/_assets/verkehr/verkehrsplanung/radverkehr/radrouten/radrouten_komplett.7z"
+) as response, archive.open("wb") as file:
+    shutil.copyfileobj(response, file)
+
+subprocess.run(["7za", "e", "-y", archive.name], cwd=radrouten_path, check=True, capture_output=True)
+
+archive.unlink()
+
+print(f"Created radrouten-berlin with {len(list(radrouten_path.glob('*.gpx')))} GPX files")
+
+print("Downloading GPX data from michael-mueller-verlag.de")
+
+single_gpx = geodata_path / "michael-mueller-verlag-berlin.gpx"
+with urllib.request.urlopen("https://mmv.me/52630/00.gpx") as response, single_gpx.open("wb") as file:
+    shutil.copyfileobj(response, file)
+
+print(f"Created {single_gpx.name} with {single_gpx.stat().st_size / 1024:.0f} KB")
+
+print("Downloading GeoJSON data from datahub.io")
+
+countries = geodata_path / "countries.geojson"
+with urllib.request.urlopen("https://datahub.io/core/geo-countries/r/0.geojson") as response, countries.open("wb") as file:
+    shutil.copyfileobj(response, file)
+
+print(f"Created {countries.name} with {countries.stat().st_size / 1024 / 1024:.1f} MB")
 
 print("Finished")

@@ -1,5 +1,6 @@
 import re
 
+import oracledb
 import pandas as pd
 
 
@@ -19,8 +20,10 @@ def _prepare_query_and_params(query, parameter_values):
                 raise KeyError(f"Named parameter '{name}' not provided")
             return f":{name}"
 
+        # The (?<!:) keeps a doubled colon out of it, the same way it does in the two sibling
+        # functions - a cast written value::numeric would otherwise look like a parameter.
         query_with_placeholders = re.sub(
-            r"(?:\:(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
+            r"(?:(?<!:):(?P<name1>[A-Za-z_][A-Za-z0-9_]*)|(?<!@)@(?P<name2>[A-Za-z_][A-Za-z0-9_]*))",
             _replace_named,
             query,
         )
@@ -49,6 +52,21 @@ def invoke_ora_query(
         print("[VERBOSE] Executing query")
 
         query, params = _prepare_query_and_params(query, parameter_values)
+
+        # A value longer than 4000 characters has to be declared as a CLOB, or Oracle answers
+        # "ORA-01461: can bind a LONG value only for insert into a LONG column". The sibling has
+        # the same guard, with the same limit. Note that this is the opposite of what the bulk
+        # path wants: declaring a CLOB in write_ora_table costs 30x, and here it is the only way
+        # the value gets in at all.
+        if isinstance(params, dict):
+            long_parameters = {
+                name: oracledb.DB_TYPE_CLOB
+                for name, value in params.items()
+                if isinstance(value, str) and len(value) > 4000
+            }
+            if long_parameters:
+                cursor.setinputsizes(**long_parameters)
+
         if params is not None:
             cursor.execute(query, params)
         else:
@@ -95,6 +113,12 @@ def invoke_ora_query(
             return None
 
     except Exception as e:
+        # Oracle does not abort the surrounding transaction the way PostgreSQL does, so this is
+        # not strictly needed here either - see the note in invoke_pg_query, which cannot do
+        # without it.
+        if not connection.autocommit:
+            connection.rollback()
+
         message = f"Query failed: {str(e)}"
         if enable_exception:
             raise Exception(message)

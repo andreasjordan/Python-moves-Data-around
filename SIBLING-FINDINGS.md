@@ -165,3 +165,36 @@ number of rows and returns success.
 load-bearing.
 
 **Here:** both import functions lower case the keys and the column names before matching.
+
+---
+
+## 7. `03_geodata.ps1` says 27 features, the file has 258
+
+**Where:** `demo/03_geodata.ps1`, and `05_sample_data_setup.ps1`
+
+**What:** the demo reads `countries.geojson` and comments the feature count as
+
+```powershell
+$geoJSON.features.Count  # 27 - only the EU
+```
+
+but the line in `05_sample_data_setup.ps1` that would reduce the download to the EU is **commented
+out**:
+
+```powershell
+# $geoJSON.features = $geoJSON.features | Where-Object { $_.properties.'ISO3166-1-Alpha-3' -in 'AUT','BEL',... }
+```
+
+**Effect:** cosmetic, but it misleads whoever reads the demo. Whatever is downloaded today is the full
+set. Measured in the Python port against the same URL, `https://datahub.io/core/geo-countries/r/0.geojson`:
+14.6 MB, **258 features**, largest geometry 1.5 MB of JSON (Canada). The comment describes a filter that
+is no longer applied.
+
+**How to see it:** run the two lines. `27` never appears.
+
+**Fix:** either restore the filter in `05`, or correct the comment. Worth deciding which, because it
+also changes how long the import takes and how big the largest bind parameter is — the Python port
+found a 4000 character Oracle limit hiding behind exactly that parameter.
+
+**Here:** the Python `05` downloads the file unfiltered, and the notebook prints the real count instead
+of asserting one.
