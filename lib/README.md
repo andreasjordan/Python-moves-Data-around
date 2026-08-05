@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has three. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has four. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -69,10 +69,37 @@ Two things the sibling has and this function does not, both waiting for the scen
 `-DataReader`, for streaming from one database into another without going through memory, and
 `-Transaction`.
 
+### `import_sql_table(connection, path, table, batch_size=1000, encoding="utf-8-sig", column_map=None, truncate_table=False, enable_exception=False)`
+
+Reads a file line by line and loads it into `table`, so the size of the file does not matter. The first
+line decides the format: `<?xml` means one `<row .../>` element per line, `{` means one JSON object per
+line. For every line it builds one value per column of the *target* table, converts it, and sends the
+rows in batches of `batch_size`, printing rows done, percentage of the file and rows/sec.
+
+`column_map` names the source value for a target column, so `{"CreationDate": "Date"}` fills the
+`CreationDate` column from the `Date` attribute — the same direction as the sibling's `-ColumnMap`.
+
+Two things differ from `Import-SqlTable` and both are worth knowing:
+
+- **The converters.** The sibling fills a `DataTable` whose columns are typed from `GetSchemaTable()`
+  and lets ADO.NET convert the strings. pyodbc has no equivalent: with `fast_executemany` it binds a
+  value by its Python type, so a string never arrives in an `INT` column — it fails with
+  `22018 Invalid character value for cast specification`. Turning `fast_executemany` off makes strings
+  work, but it was measured at 51s against 1s for the same file. So this function converts the values
+  itself, choosing a converter per column from the type in `cursor.description`. A column whose type is
+  not in `_CONVERTERS` is an error rather than a silent passthrough.
+- **The default encoding is `utf-8-sig`, not `utf-8`.** These files start with a byte order mark.
+  `Get-Content` drops it silently, `open` does not, and with plain `utf-8` the first line does not start
+  with `<?xml`, so the format detection would never trigger.
+
+A value that is missing from a row becomes `NULL`. That is not optional: in `Users.xml` three of the
+twelve attributes are absent from thousands of rows, and two columns of the table are not in the file at
+all.
+
 ## Gaps in the grid
 
-Nothing below exists yet. The names are fixed by the naming grid, so they are worth writing down before
-anyone invents a different one:
+The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
+a different name for them. A tick marks what exists:
 
 | Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
 | --- | --- | --- | --- | --- | --- |
@@ -81,7 +108,7 @@ anyone invents a different one:
 | Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | `read_mdb_collection` | — |
 | Cursor for streaming into a writer | `get_sql_data_reader` | `get_ora_data_reader` | `get_pg_data_reader` | — | — |
 | Bulk write | ✔ `write_sql_table` | `write_ora_table` | `write_pg_table` | `write_mdb_collection` | — |
-| File → table | `import_sql_table` | `import_ora_table` | `import_pg_table` | — | — |
+| File → table | ✔ `import_sql_table` | `import_ora_table` | `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
 | Object storage | — | — | — | — | `get_mio_file`, `get_mio_file_list`, `set_mio_file`, `remove_mio_file` |
