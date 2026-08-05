@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has four. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has eight. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -96,6 +96,45 @@ A value that is missing from a row becomes `NULL`. That is not optional: in `Use
 twelve attributes are absent from thousands of rows, and two columns of the table are not in the file at
 all.
 
+### `connect_pg_instance(instance, database=None, username=None, password=None, pooled_connection=False, enable_exception=False)`
+
+Returns an open `psycopg.Connection`, or `None` on failure. `instance` may carry a port as
+`127.0.0.1:5432`, the same way the sibling's `-Instance` does. `pooled_connection` is accepted so that
+the signature matches `connect_sql_instance`, but it only prints a note: Npgsql pools through the
+connection string, while psycopg keeps pooling in a separate `psycopg_pool` package that this
+repository does not use.
+
+### `invoke_pg_query(connection, query, as_type="DataFrame", parameter_values=None, enable_exception=False)`
+
+The same shape and the same `as_type` values as `invoke_sql_query`. The difference is in the
+parameters: psycopg has real named parameters, written `%(name)s`, so the rewrite only renames
+`:name` and `@name` and hands the dictionary over unchanged. `invoke_sql_query` has to count positions
+and reorder the values, because pyodbc has no named parameters at all.
+
+### `write_pg_table(connection, table, data=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+
+Loads a pandas DataFrame into `table` through `COPY`. The DataFrame columns are matched against the
+table columns **case insensitively**, so a frame with `CreationDate` fills a column called
+`creationdate`. `NaN` and `NaT` become `NULL`. `batch_size` no longer splits the work into batches —
+`COPY` is one stream — it only says how often progress is printed.
+
+### `import_pg_table(connection, path, table, batch_size=1000, encoding="utf-8-sig", column_map=None, truncate_table=False, enable_exception=False)`
+
+The counterpart of `import_sql_table`, and the call sites are identical. Two things inside are not:
+
+- **No converters.** `COPY` hands the text to PostgreSQL, which parses it into the column type itself.
+  The whole `_CONVERTERS` table of the SQL Server version is unnecessary here. It is also faster —
+  measured on `Users.xml`, 12220 rows: `COPY` with raw strings 0.14 s, `COPY` with converted values
+  0.30 s, `executemany` with raw strings 0.95 s, `executemany` with converted values 1.27 s.
+- **Identifiers are lower cased.** PostgreSQL folds unquoted identifiers, and the tables of this
+  repository are created unquoted, so the catalog holds `users` and `creationdate`. Both the table
+  name and the keys of every row are lower cased before they are matched. Without that, not one of the
+  fourteen columns of `Users` would match an attribute of the file, and the import would write 12220
+  rows of `NULL` without an error.
+
+`import_sql_table` lower cases as well, so that the two functions stay siblings. It is harmless there,
+because `cursor.description` reports the names as SQL Server stores them.
+
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
@@ -103,12 +142,12 @@ a different name for them. A tick marks what exists:
 
 | Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
 | --- | --- | --- | --- | --- | --- |
-| Connect | ✔ `connect_sql_instance` | `connect_ora_instance` | `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
-| Query, all at once | ✔ `invoke_sql_query` | `invoke_ora_query` | `invoke_pg_query` | — | — |
+| Connect | ✔ `connect_sql_instance` | `connect_ora_instance` | ✔ `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
+| Query, all at once | ✔ `invoke_sql_query` | `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
 | Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | `read_mdb_collection` | — |
 | Cursor for streaming into a writer | `get_sql_data_reader` | `get_ora_data_reader` | `get_pg_data_reader` | — | — |
-| Bulk write | ✔ `write_sql_table` | `write_ora_table` | `write_pg_table` | `write_mdb_collection` | — |
-| File → table | ✔ `import_sql_table` | `import_ora_table` | `import_pg_table` | — | — |
+| Bulk write | ✔ `write_sql_table` | `write_ora_table` | ✔ `write_pg_table` | `write_mdb_collection` | — |
+| File → table | ✔ `import_sql_table` | `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
 | Object storage | — | — | — | — | `get_mio_file`, `get_mio_file_list`, `set_mio_file`, `remove_mio_file` |

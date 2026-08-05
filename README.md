@@ -17,6 +17,7 @@ I have installed Python 3.14.6 on my Windows 11 system and also installed the ne
 python -m pip install pyodbc
 pip install pandas openpyxl
 pip install notebook
+pip install "psycopg[binary]"
 ```
 
 I have installed the "SQL Server ODBC driver" using these links:
@@ -30,17 +31,18 @@ I use VS Code to work with Jupyter Notebooks.
 ## Current state
 
 This repository is a work in progress. The [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around)
-repository is being ported scenario by scenario, and so far only the first one is here:
+repository is being ported scenario by scenario:
 
 | Part | State |
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
-| `lib/` | Three functions, SQL Server only |
+| StackExchange demo | In progress, see `demo/02_stackexchange.ipynb` |
+| `lib/` | Eight functions, for SQL Server and PostgreSQL |
 | Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
-The remaining scenarios — StackExchange, Geodata, PhotoService, ProjectStatus — are described in the
-sibling repository and will follow.
+The remaining scenarios — Geodata, PhotoService, ProjectStatus — are described in the sibling
+repository and will follow.
 
 
 
@@ -49,15 +51,16 @@ sibling repository and will follow.
 Working today:
 
 - Microsoft SQL Server
+- PostgreSQL
 - Microsoft Excel
+- XML files
 
 Planned, in the order the scenarios will be ported:
 
-- MinIO
-- MongoDB
-- PostgreSQL
 - Oracle database
-- JSON files, XML files, GPX files, JPEG files
+- MongoDB
+- MinIO
+- JSON files, GPX files, JPEG files
 
 
 
@@ -107,10 +110,11 @@ The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/s
 - Setup: XML files will be downloaded from archive.org/download/stackexchange
 - The files are read line by line, because every row is valid XML on its own
 - Data from the XML files will be imported into a SQL Server database
+- The same files will be imported into a PostgreSQL database, which needs a different approach
 
 This scenario is still being built. Compared to the PowerShell version it is missing the import into
-Oracle and PostgreSQL, the streaming of data between databases and database systems, the import into
-MongoDB, and the upload to and download from MinIO.
+Oracle, the streaming of data between databases and database systems, the import into MongoDB, and
+the upload to and download from MinIO.
 
 
 
@@ -180,8 +184,8 @@ for each of them:
 | Step | Runs as | What it does |
 | --- | --- | --- |
 | `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
-| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc` |
-| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server has created the demo databases |
+| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg` |
+| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server and PostgreSQL have created the demo databases |
 | `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
 | `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |
 

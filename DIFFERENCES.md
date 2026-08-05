@@ -90,6 +90,28 @@ the sibling at all.
 either fails outright or costs 53×. Also rejected: building the DataFrame first — the types have to be
 correct *before* the frame exists, and turning `NaN` into `None` does not rescue it.
 
+### Matching a column name to a value
+
+**The sibling:** never has to think about it. PowerShell property access is case insensitive, so
+`$rowObject.aboutme` finds the `AboutMe` attribute and the same import loop works against SQL Server
+and PostgreSQL unchanged.
+
+**Python:** dictionary lookup is case sensitive, and the two databases do not agree on case.
+SQL Server stores the identifiers as written, `CreationDate`. PostgreSQL folds unquoted identifiers to
+lower case, and the tables of this repository are created unquoted, so the catalog holds
+`creationdate`.
+
+**Evidence:** for the PostgreSQL `Users` table, of fourteen columns, **zero** match an attribute of
+`Users.xml` by exact name. Twelve match case insensitively.
+
+**Decision:** both `import_sql_table` and `import_pg_table` lower case the keys of a row, the column
+names and the entries of `column_map` before matching. `write_pg_table` matches its DataFrame columns
+the same way. The quoting helper for PostgreSQL lower cases the identifier as well, so that
+`Users` reaches the catalog as `"users"`.
+
+**Why it matters:** exact matching does not fail loudly here. It fills every column with `NULL`,
+reports the correct number of rows, and returns success.
+
 ### Bulk loading
 
 **The sibling:** `SqlBulkCopy` with `TableLock` and `UseInternalTransaction`, and `NotifyAfter` driving
@@ -104,19 +126,56 @@ progress reporting are all written out by hand.
 **Consequence:** the loop is visible. That is more code than the sibling needs, but on a projector the
 batching is on screen rather than hidden behind a .NET class.
 
+### Loading into PostgreSQL: COPY
+
+**The sibling:** `Write-PgTable` fills a `DataTable` and lets an `NpgsqlDataAdapter` with an
+`NpgsqlCommandBuilder` generate the `INSERT` statements. It does **not** use a binary import or
+`COPY`. Making that faster is an open item in the sibling repository.
+
+**Python:** psycopg exposes `COPY` directly through `cursor.copy()`, and the text format takes the
+values as text and lets PostgreSQL parse them into the column types.
+
+**Evidence** — `Users.xml`, 12220 rows, into the PostgreSQL `Users` table:
+
+| Approach | Result |
+| --- | --- |
+| `executemany`, converted values | 1.27 s |
+| `executemany`, raw strings | 0.95 s |
+| `COPY`, converted values | 0.30 s |
+| `COPY`, raw strings | **0.14 s** |
+
+All four produce identical data. Escaping was checked separately on the `Text` column of
+`Comments.xml`: of 4512 rows, 24 contain a tab, a newline or a backslash, and all of them round-trip
+byte-exact through `copy.write_row`.
+
+**Decision:** `write_pg_table` and `import_pg_table` use `COPY`. `import_pg_table` passes the raw
+strings, so it needs no converter table at all — the whole `_CONVERTERS` mechanism that SQL Server
+forced on `import_sql_table` is absent here.
+
+**Note:** this is a deliberate divergence from the sibling's shape rather than a translation of it,
+agreed because the PowerShell side wants the same improvement. The intention is to port `COPY` back
+to `Write-PgTable`.
+
+**Why it matters:** the same problem produced opposite answers on the two databases. On SQL Server,
+passing raw strings fails outright and the fastest path needs the most code. On PostgreSQL, passing
+raw strings is both the fastest path and the least code.
+
 ### Named parameters
 
 **The sibling:** ADO.NET has real named parameters, and `Invoke-SqlQuery` also exposes
 `-ParameterTypes` to pin a `SqlDbType` per parameter.
 
-**Python:** pyodbc supports positional `?` only.
+**Python:** the two drivers disagree. pyodbc supports positional `?` only. psycopg has real named
+parameters, written `%(name)s`.
 
-**Decision:** `invoke_sql_query` accepts a dict and rewrites `:name` and `@name` into `?` in order of
-appearance, so the call site reads like the PowerShell one.
+**Decision:** both functions accept the same dict and the same `:name` / `@name` syntax in the query,
+so the call sites stay identical across providers. What they do with it differs — `invoke_sql_query`
+rewrites to `?` and has to collect the values in order of appearance, `invoke_pg_query` only renames
+to `%(name)s` and passes the dict through untouched.
 
 **Limitation, accepted:** the rewrite is a regular expression that does not know about string literals,
 so a `:` inside a quoted string in the query would be mangled. There is no equivalent of
-`-ParameterTypes`.
+`-ParameterTypes` in either.
 
 ---
 

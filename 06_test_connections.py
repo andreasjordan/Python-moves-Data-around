@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.append(str((Path(__file__).parent / "lib").resolve()))
 
+from connect_pg_instance import connect_pg_instance  # noqa: E402
 from connect_sql_instance import connect_sql_instance  # noqa: E402
 
 # Timesheets
@@ -33,7 +34,11 @@ stackexchange = {
     "sql_instance": "127.0.0.1",
     "sql_login": "StackExchange",
     "sql_password": "Passw0rd!",
-    "sql_database": "StackExchange"
+    "sql_database": "StackExchange",
+    "pg_instance": "127.0.0.1",
+    "pg_user": "stackexchange",
+    "pg_password": "Passw0rd!",
+    "pg_database": "stackexchange"
 }
 
 stackexchange["sql_connection"] = connect_sql_instance(
@@ -45,6 +50,16 @@ stackexchange["sql_connection"] = connect_sql_instance(
 )
 
 stackexchange["sql_connection"].close()
+
+stackexchange["pg_connection"] = connect_pg_instance(
+    instance=stackexchange["pg_instance"],
+    database=stackexchange["pg_database"],
+    username=stackexchange["pg_user"],
+    password=stackexchange["pg_password"],
+    enable_exception=True
+)
+
+stackexchange["pg_connection"].close()
 
 print("Finished")
 

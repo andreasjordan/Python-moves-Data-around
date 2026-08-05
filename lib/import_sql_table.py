@@ -31,11 +31,14 @@ def _quote_table_name(table):
 
 
 def _parse_row(line, data_type):
-    # Returns the values of one line as a dict, or None for a line without data
+    # Returns the values of one line as a dict with lower cased keys, or None for a line
+    # without data. The keys are lower cased so that a source name matches a column name no
+    # matter how either is written - PowerShell finds a property regardless of case, and
+    # PostgreSQL reports its columns in lower case.
     if data_type == "xml" and line.lstrip().startswith("<row"):
-        return ET.fromstring(line).attrib
+        return {key.lower(): value for key, value in ET.fromstring(line).attrib.items()}
     if data_type == "json":
-        return json.loads(line)
+        return {key.lower(): value for key, value in json.loads(line).items()}
     return None
 
 
@@ -74,6 +77,10 @@ def import_sql_table(
             print("[VERBOSE] Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
             connection.commit()
+
+        # The column map names the source value for a target column, like CreationDate -> Date
+        lowered_map = {key.lower(): value.lower() for key, value in column_map.items()} if column_map else {}
+        source_names = [lowered_map.get(column.lower(), column.lower()) for column in columns]
 
         # Build the insert statement from the target schema
         quoted_columns = ", ".join(_quote_identifier(column) for column in columns)
@@ -115,8 +122,8 @@ def import_sql_table(
                 # One value per column of the target table. A value that is not in the row
                 # becomes NULL - the rows of these files do not all have the same attributes.
                 batch.append(tuple(
-                    _convert_value(row, column, column_map, convert)
-                    for column, convert in zip(columns, converters, strict=True)
+                    _convert_value(row.get(name), convert)
+                    for name, convert in zip(source_names, converters, strict=True)
                 ))
                 row_count += 1
 
@@ -153,8 +160,5 @@ def import_sql_table(
             cursor.close()
 
 
-def _convert_value(row, column, column_map, convert):
-    # The column map names the source value for a target column, like CreationDate -> Date
-    source = column_map.get(column, column) if column_map else column
-    value = row.get(source)
+def _convert_value(value, convert):
     return None if value is None else convert(value)
