@@ -21,9 +21,13 @@ probably right. If it adds abstraction, indirection or defensive layers, it is p
 
 ## Current state — read this before assuming anything works
 
-The repository is early. **Timesheets** is complete. **StackExchange** is being built step by step and
-imports the files into SQL Server, PostgreSQL, Oracle and MongoDB and streams between the three
-relational ones. MinIO was dropped on purpose and is not coming — see `DIFFERENCES.md`.
+**Three scenarios are complete: Timesheets, StackExchange and Geodata.** StackExchange imports the
+files into SQL Server, PostgreSQL, Oracle and MongoDB and streams between the three relational ones;
+Geodata moves GPX and GeoJSON geometry into all three through WKT. MinIO was dropped on purpose and is
+not coming — see `DIFFERENCES.md`.
+
+**Two scenarios remain: ProjectStatus and PhotoService.** Neither has been started. See
+"What is left to port" below before picking one up.
 
 | Area | State |
 | --- | --- |
@@ -36,7 +40,7 @@ relational ones. MinIO was dropped on purpose and is not coming — see `DIFFERE
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
 | `05_sample_data_setup.py` | Timesheets, the StackExchange download and the Geodata downloads. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL. It grows one block per ported scenario and per provider. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL. It grows one block per ported scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -88,6 +92,46 @@ immediately after a restart. All four databases have their own wait now. Oracle'
 function rather than a one-liner, because `sqlplus` takes its query on stdin, and it gets 15 minutes
 instead of 5, because Oracle takes far longer to start than the other two.
 
+## What is left to port
+
+Three scenarios are done: Timesheets, StackExchange, Geodata. MinIO was dropped on purpose. Two
+scenarios remain, and neither has been started — no `lib/` function, no notebook, no `05`/`06` block.
+
+### ProjectStatus — the cheaper of the two
+
+The sibling is `demo/05_projectstatus.ps1`, 248 lines, Excel into a database. Closest in spirit to
+Timesheets, so `import_xls_timesheet.py` and the Timesheets notebook are the models to follow.
+
+**`data/projectstatus/` does not exist here at all** — the sibling has one with a `sample.json`, and the
+generation block in its `05_sample_data_setup.ps1`. That whole scenario checklist at the bottom of this
+file applies from step 1.
+
+Worth knowing before starting: the sibling's script is written for PowerShell 5.1 as well as 7.5, and
+spends its first third *teaching* — installing the module, building a credential, creating the target
+table from a `CREATE TABLE` in the script. Some of that is scaffolding this repository already has, so
+read it for the data flow rather than translating it line by line.
+
+### PhotoService — the bigger one
+
+The sibling is `demo/04_photoservice.ps1`, 416 lines, plus `04_photoservice_transfer_01.ps1`. Binary
+JPEG data into PostgreSQL and on to SQL Server. `data/photoservice/` already has the photos, committed.
+
+Two costs beyond the notebook, and they are the reason this is last:
+
+- `docker/photoservice-app.ps1` is **still the sibling's**. It dot-sources `./lib/*-Pg*.ps1`, which does
+  not exist here, and mounts the PowerShell modules from the WSL2 host. The `photoservice` service is
+  commented out in `docker/docker-compose.yaml` until somebody decides whether that app gets ported to
+  Python, left as PowerShell, or dropped. **That is an open decision for the owner, not a default.**
+- Binary columns are the one data shape the port has not touched. Expect it to be its own
+  `DIFFERENCES.md` entry: `bytes` through pyodbc and psycopg, and a `BLOB` on the Oracle side if it goes
+  there, where the CLOB findings above suggest the bind rules will need measuring rather than assuming.
+
+### Also unported, and undecided
+
+The **Azure SQL bonus** at the end of the sibling's `demo/02_stackexchange.ps1`. It streams a file and a
+table into an Azure SQL Database, and needs Azure resources, the `Az` module, a firewall rule and two
+environment variables — so it is not local. Nobody has decided whether it belongs.
+
 ## The Geodata port — finished, minus one bonus
 
 GPX and GeoJSON into all three relational systems, through WKT. It needed **no new `lib/` function** —
@@ -122,6 +166,42 @@ resources, the `Az` PowerShell module, a firewall rule and two environment varia
 local and not part of the demo as it is presented. It is unported, and nobody has decided whether it
 should be.
 
+## Adding a dependency
+
+`pip install` is on the deny list in `.claude/settings.json`, so an agent cannot install anything. The
+owner has to. What an agent **can** and must do, in the same turn as the code that needs it:
+
+1. Add it to the `pip install` line in `03_python_setup.sh` — that is WSL2, where `06` runs.
+2. Add it to the pip block in `README.md`, and to the `03_python_setup.sh` row of the setup table there.
+3. Add it to the runtime dependency list in the `Loading model` section below.
+4. Then tell the owner the exact command to run on Windows, where the notebooks live.
+
+Do not wait to be asked for steps 1 to 3. The owner has had to prompt for it once
+("You have not changed the 03_python_setup.sh - so I wait for that to change?") and it should not
+happen again.
+
+**Currently known gap:** `pymongo` is in `03_python_setup.sh` but was added after the last WSL2 setup
+run. Unless `03_python_setup.sh` has been re-run since, `06_test_connections.py` will fail on its
+MongoDB block inside WSL2. The Windows install was done, so the notebooks are fine.
+
+## The sample data on disk
+
+`data/` holds the inputs for the scenarios. Everything generated or downloaded is gitignored, so a
+fresh clone has only the `README.md` files, `sample.json` and the PhotoService photos.
+
+`05_sample_data_setup.py` creates or downloads the rest, and **it downloads everything on every run** —
+see finding 5 in `SIBLING-FINDINGS.md`, which is open on both sides. The Geodata part pulls about 15 MB,
+most of it `countries.geojson`.
+
+Two practical notes for an agent that needs the data present:
+
+- `05` extracts the Berlin GPX archive with `7za`, which exists in WSL2. On Windows the equivalent is
+  `C:\Program Files\7-Zip\7z.exe`, which is installed but not on the PATH. A scratchpad script that
+  fetches the data for local development has to use the full path.
+- A large download run with `run_in_background` can be cut off, and a truncated
+  `countries.geojson` fails as `JSONDecodeError` a long way downstream. It should be
+  **14643643 bytes / 258 features**; check the size before trusting it.
+
 ## Demo notebooks are stepped through, never run
 
 `demo/01_timesheets.ipynb` is opened in VS Code and executed **cell by cell**, telling a story as it
@@ -139,6 +219,47 @@ goes. The markdown cells between the code are the narration.
 When you do change a notebook, edit the JSON minimally with `NotebookEdit` and touch only the cells
 the task is about. Do not reformat the file — a whole-file rewrite loses the diff and usually the
 outputs with it.
+
+### How to actually edit these notebooks, because the obvious way stops working
+
+Two of the three notebooks are now past the point where the tooling copes, and this will cost you time
+if you do not know it in advance:
+
+- **`NotebookEdit` requires a successful `Read` first, and `Read` refuses these files.**
+  `demo/03_geodata.ipynb` is about 26k tokens with its outputs, over the limit, and `offset`/`limit` do
+  not help on an `.ipynb`. `demo/02_stackexchange.ipynb` is close behind.
+- **The `Edit` tool refuses `.ipynb` outright**, and tells you to use `NotebookEdit`.
+
+So for a notebook that already carries outputs, change one cell with a **raw exact-match replacement in
+Python**: read the file as text, `assert raw.count(OLD) == 1`, replace, write back. Get `OLD` by
+printing the raw JSON slice around the cell id first, so the escaping is exactly right. The assert is
+the safety rail — without it a near-miss silently writes nothing or, worse, twice.
+
+Do **not** load the JSON and re-dump it. Whatever indent or `ensure_ascii` you pick will differ from
+what Jupyter wrote, and the entire file reformats — losing the diff, which is the thing this section
+exists to protect.
+
+Adding cells to the *end* of a notebook, or building a new notebook, is fine with `Write` or a small
+generator script. Inserting into the middle of one that has outputs is where you need the raw
+replacement. When inserting several cells with `NotebookEdit`, insert them in **reverse order** all
+anchored to the same existing `cell_id`; you do not know the ids of cells you have not created yet.
+
+Also: `Path.write_text` on Windows turns `\n` into `\r\n`, so a generated notebook lands with CRLF.
+Git normalises it to LF on commit, so it does not matter — but do not go chasing the warning.
+
+### The working rhythm for a notebook change
+
+An agent cannot run a notebook, so a notebook change is finished in two steps and the second one is the
+owner's:
+
+1. Write or edit the cells. New cells have **no outputs** — never hand-write an output.
+2. Say so, and stop. The owner steps through the notebook in VS Code and then asks for the commit.
+
+State that the cells have no committed output in the `Current state` table while that is true, and
+**remove that note in the same commit that lands the outputs** — not in a follow-up. Before committing
+after the owner's run, check what they actually produced: count the outputs, look for code cells that
+came back empty, and read the cells whose numbers the narration quotes. That last check has caught a
+contradiction twice — a markdown cell asserting a count that the cell above it no longer printed.
 
 Scripts that *are* meant to run: the numbered scripts in the repository root (subject to the table
 above) and `start_containers.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
@@ -288,9 +409,51 @@ python -m ruff check .
 python -c "import json,sys; nb=json.load(open(sys.argv[1],encoding='utf-8')); print(len(nb['cells']),'cells,',sum(len(c.get('outputs',[])) for c in nb['cells']),'outputs')" demo/01_timesheets.ipynb
 ```
 
-Read-only inspection (`docker ps`, `docker compose logs`, `git`) is fine.
+Read-only inspection (`docker ps`, `docker compose logs`, `git`) is fine. Note that `docker` lives
+inside WSL2 and is **not** on the Windows PATH, so reaching it would mean running `wsl` — ask the owner
+about container state instead of starting anything.
 
-If a change really cannot be verified without a database, say so rather than claiming it works.
+`ruff` is **not installed** in the Windows interpreter, so `python -m ruff check` fails with
+`No module named ruff`. Say so rather than reporting it as passing.
+
+**Set `PYTHONIOENCODING=utf-8` on anything that prints notebook content.** The console is `cp1252` and
+the committed outputs contain non-ASCII from the sample data — a StackExchange display name is
+`ypercubeᵀᴹ`, `import_gpx_file` prints `📄`. Without it an inspection script dies with
+`UnicodeEncodeError` partway through, which looks like a broken notebook and is not one. The `[VERBOSE]`
+lines are also worth filtering out when reading a verification run; there are thousands of them.
+
+### But static checks are not enough, and this is the lesson of the port so far
+
+Every real defect found in `lib/` was found by **running Python against the live containers** — never by
+reading the code. `compileall` was green every single time.
+
+When the containers are up, write a throwaway script in the scratchpad directory that **drives the real
+`lib/` functions the way a notebook would**, and run it. That is not on the forbidden list: it is
+ordinary Python, it touches only demo tables, and it is the only thing that works. The pattern that has
+paid off four times now:
+
+- Import from `lib/` and `demo/` via `sys.path`, exactly as a notebook does. Do not reimplement the
+  logic in the test — the point is to exercise the shipped function.
+- Print `PASS`/`FAIL` per check and a summary at the end, so a partial failure is obvious.
+- Create and drop your own tables, and clean up.
+- Run it with `run_in_background: true`. A GeoJSON import or an Oracle round trip takes minutes.
+
+**Compare values against the source, column by column. A row count is not a check.** This is how the
+worst bug in the port was found and it is worth repeating: `import_ora_table` reported
+`OK - 12220 rows in 0.27 s` while silently discarding the milliseconds of every timestamp. Checking
+`CreationDate` alone would have confirmed the bug as correct, because every value in that column
+happens to end in `.000`. Only comparing `LastAccessDate` per row against the file exposed it.
+
+**And do not trust a passing check that could have got lucky.** `FETCH FIRST 3 ROWS ONLY` reported the
+Oracle geometry read-back as working; over the whole table it fails for a fifth of the rows. Ask
+whether the check could pass for the wrong reason.
+
+**Watch for a confound in your own script.** One round of measurements "proved" that
+`oracledb.defaults.fetch_lobs = False` had no effect. It had reused the SQL text of the previous query,
+so oracledb's statement cache served the old fetch metadata. Vary the SQL, or pass `stmtcachesize=0`.
+
+If a change really cannot be verified — containers down, driver missing — say so plainly rather than
+claiming it works.
 
 ## Style
 
