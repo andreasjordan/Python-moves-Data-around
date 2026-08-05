@@ -39,6 +39,12 @@ has reached the point of importing the files into SQL Server; no second database
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
 
+**When a design decision is made, append an entry to `DIFFERENCES.md`** — what the sibling does, what
+Python forced, the evidence, the decision, and what was rejected. That file is the record of *why* the
+port looks the way it does, and it is the one place where the rejected alternatives are written down.
+Keep the scope: behaviour of a function belongs in `lib/README.md`, rules belong here, narration
+belongs in the notebooks.
+
 ### The chart formatting in the Timesheets report
 
 The charts are the one part of the Timesheets scenario that is not finished. They render and the
