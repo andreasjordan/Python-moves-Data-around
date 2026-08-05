@@ -28,13 +28,31 @@ The repository is early. Only the **Timesheets** scenario exists, and only for S
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
 | `lib/` | Three functions, SQL Server only: `connect_sql_instance`, `invoke_sql_query`, `write_sql_table`. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
-| The setup chain | Ported to Python and consistent, but **not yet run end to end from a clean WSL2**. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
+| The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
+| The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
 | `05_sample_data_setup.py` | Timesheets only. The StackExchange and Geodata blocks of the sibling's `05_sample_data_setup.ps1` were dropped rather than ported; they come back with their scenarios. |
 | `06_test_connections.py` | SQL Server / Timesheets only. It grows one block per ported scenario. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
+
+### The chart formatting in the Timesheets report
+
+The charts are the one part of the Timesheets scenario that is not finished. They render and the
+numbers are right, but the appearance has not been settled. When that is picked up, these are the
+known approximations, so nobody has to work them out again:
+
+- The sizes are guesses. The sibling passes pixels to `Export-Excel` (300x300 for the pie, 1000x300
+  for the bar); openpyxl wants centimetres, so `height`/`width` are set to 10x10 and 26x10.
+- The bar chart has about 25 dates as categories, which is where the axis labels get crowded.
+- Neither chart has data labels, and the pie chart has no percentages.
+- The sibling styles both blocks as an Excel table (`TableStyle Light18`) and uses `AutoSize`. Here the
+  column widths are four hard-coded numbers and there is no table style at all.
+
+The data layout is deliberate and should survive any restyling: both results share one worksheet, the
+first 19 rows are left free for the charts, and the second block starts at column E. Reading a block
+back needs `nrows`, because the two blocks have a different number of rows.
 
 The setup runs Python **inside WSL2**, from a pyenv installation that belongs to the default user
 (uid 1000), not to root. Two things follow, and both have already bitten this repository once:
