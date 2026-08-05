@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.append(str((Path(__file__).parent / "lib").resolve()))
 
+from connect_mdb_instance import connect_mdb_instance  # noqa: E402
 from connect_ora_instance import connect_ora_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
 from connect_sql_instance import connect_sql_instance  # noqa: E402
@@ -43,7 +44,11 @@ stackexchange = {
     "pg_instance": "127.0.0.1",
     "pg_user": "stackexchange",
     "pg_password": "Passw0rd!",
-    "pg_database": "stackexchange"
+    "pg_database": "stackexchange",
+    "mdb_instance": "127.0.0.1",
+    "mdb_user": "stackexchange",
+    "mdb_password": "Passw0rd!",
+    "mdb_database": "stackexchange"
 }
 
 stackexchange["sql_connection"] = connect_sql_instance(
@@ -74,6 +79,18 @@ stackexchange["pg_connection"] = connect_pg_instance(
 )
 
 stackexchange["pg_connection"].close()
+
+stackexchange["mdb_connection"] = connect_mdb_instance(
+    instance=stackexchange["mdb_instance"],
+    database=stackexchange["mdb_database"],
+    username=stackexchange["mdb_user"],
+    password=stackexchange["mdb_password"],
+    enable_exception=True
+)
+
+# connect_mdb_instance returns a database, not a connection, and a database has nothing to
+# close - the client behind it does.
+stackexchange["mdb_connection"].client.close()
 
 print("Finished")
 

@@ -19,6 +19,7 @@ pip install pandas openpyxl
 pip install notebook
 pip install "psycopg[binary]"
 pip install oracledb
+pip install pymongo
 ```
 
 I have installed the "SQL Server ODBC driver" using these links:
@@ -40,8 +41,8 @@ repository is being ported scenario by scenario:
 | Part | State |
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
-| StackExchange demo | In progress, see `demo/02_stackexchange.ipynb` |
-| `lib/` | Fifteen functions, for SQL Server, Oracle and PostgreSQL |
+| StackExchange demo | In progress, see `demo/02_stackexchange.ipynb`. Only MinIO is missing. |
+| `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
 | Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
@@ -57,12 +58,12 @@ Working today:
 - Microsoft SQL Server
 - Oracle database
 - PostgreSQL
+- MongoDB
 - Microsoft Excel
 - XML files
 
 Planned, in the order the scenarios will be ported:
 
-- MongoDB
 - MinIO
 - JSON files, GPX files, JPEG files
 
@@ -117,9 +118,10 @@ The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/s
 - The same files will be imported into a PostgreSQL database, which needs a different approach
 - And into an Oracle database, which needs a third approach again
 - Data will be streamed from table to table, in all nine directions between the three systems
+- As a bonus, the same data goes into MongoDB, which has no schema to convert against at all
 
-This scenario is still being built. Compared to the PowerShell version it is missing the import into
-MongoDB and the upload to and download from MinIO.
+This scenario is still being built. Compared to the PowerShell version it is missing the upload to and
+download from MinIO.
 
 
 
@@ -189,8 +191,8 @@ for each of them:
 | Step | Runs as | What it does |
 | --- | --- | --- |
 | `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
-| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg oracledb` |
-| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server, PostgreSQL and Oracle have created the demo databases |
+| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo` |
+| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
 | `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
 | `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |
 

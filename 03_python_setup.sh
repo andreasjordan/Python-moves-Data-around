@@ -13,6 +13,6 @@ echo "Installing Python packages for $(python --version)"
 # This is the pyenv Python, not the system Python that Ubuntu marks as externally managed,
 # so a plain pip install is all it takes.
 python -m pip install --upgrade pip
-python -m pip install pandas openpyxl pyodbc "psycopg[binary]" oracledb
+python -m pip install pandas openpyxl pyodbc "psycopg[binary]" oracledb pymongo
 
 echo "Finished"

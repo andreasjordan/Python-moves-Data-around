@@ -365,6 +365,77 @@ returns, so `get_pg_data_reader` streams from the writer's point of view but not
 server-side cursor would change that. `Get-PgDataReader` does stream, so this is a real difference and
 not just an implementation detail.
 
+## MongoDB
+
+### A connection that is not a connection
+
+**The sibling:** `Connect-MdbInstance` returns a `PSCustomObject` with three fields — `Client`,
+`Database` and `Collection` — because the Mdbc module needs all three, and it takes a `-Collection`
+parameter to fill the third.
+
+**Python:** pymongo has the same three objects, and `Database` is the one everything else hangs off:
+`connection["Users"]` is the collection.
+
+**Decision:** return the `Database`. The write and read functions take the collection by name, which
+keeps their call sites looking like the other four providers', and `-Collection` on the connect
+function disappears because it has nothing left to do.
+
+**Rejected:** a dict of the three handles, mirroring the sibling exactly. It would have made every
+function start by unpacking it, for no gain. Also rejected: returning the `MongoClient`, which is the
+closest thing to what the other four return, but then every call would need the database name as well
+as the collection name — and no sibling call site does.
+
+**The cost, and it is real:** a `Database` has no `close()`. The client behind it does, so the notebook
+and `06_test_connections.py` both end with `connection.client.close()`. That is the one place where
+this decision leaks, and it is commented at both call sites.
+
+### The connection that was never made
+
+**The sibling:** `Connect-Mdbc` contacts the server, so a wrong password or a stopped container fails
+inside `Connect-MdbInstance`, like every other connect function in the library.
+
+**Python:** `MongoClient(...)` does not talk to the server at all. It resolves the topology lazily, on
+the first operation. So the obvious translation returns a perfectly good-looking database object for a
+server that is not running, and the failure appears later, somewhere else entirely.
+
+**Evidence:** with no ping, `connect_mdb_instance` against port 27099 — where nothing listens — returned
+a `Database` and printed `Returning database object`. `06_test_connections.py`, whose whole purpose is
+to prove the databases are reachable, would have passed.
+
+**Decision:** `connect_mdb_instance` runs `client[database].command("ping")` before returning.
+Verified both ways: a dead port and a wrong password now both fail during the connect, with
+`[ERROR] Connection failed: …`, exactly as the other four do.
+
+**Why it matters:** this is the only connect function in `lib/` where "it returned an object" does not
+mean "it worked". The test script that exists to catch unreachable databases was the thing most likely
+to be fooled by it.
+
+### Nothing to ask about the types
+
+**The sibling:** builds the documents by hand — `_id = [int]$row.Id`, `CreationDate =
+[datetime]$row.CreationDate` — because there is no schema to convert against.
+
+**Python:** the same, and for once the port is *shorter* rather than different. The XML rows are
+already dicts, which is what pymongo wants, so the `[PSCustomObject]@{ … }` block becomes a dict
+literal and nothing else has to change.
+
+**The interesting part is what is absent.** Every other write function in `lib/` starts by asking the
+target for its columns: `SELECT TOP 0 *`, `SELECT * FROM t WHERE 1=0`. That is where the converters
+come from for SQL Server, where the two `TIMESTAMP` declarations come from for Oracle, and what
+`COPY` makes unnecessary for PostgreSQL. A collection has no columns, so `write_mdb_collection` has
+nothing to ask, nothing to match, and no converter table — it inserts what it is handed.
+
+**Decision:** the conversion lives in the notebook, in the open, where the sibling also keeps it. The
+alternative — accepting a DataFrame like the other four write functions and inserting
+`to_dict("records")` — was rejected because it would move the typing into pandas dtypes and then need
+`NaN` turned back into `None` and `Id` renamed to `_id` inside the function, which is more machinery
+to hide a thing worth showing.
+
+**Verified:** all 12220 documents round-trip with their types. `_id` and the counters come back as
+`int`, the dates as `datetime` — and BSON stores a date to millisecond precision, which is exactly
+what these files carry, so every one of the 12220 `LastAccessDate` values matches the file. Checked
+rather than assumed, because the Oracle entry above is what happens otherwise.
+
 ## Excel
 
 ### Writing a report

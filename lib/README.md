@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has fifteen. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has eighteen. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -217,6 +217,60 @@ before the first `fetchmany` returns, so `get_pg_data_reader` streams from the w
 but not from the server's. A server-side cursor — `connection.cursor(name=...)` — would change that,
 and is the thing to reach for if a table ever stops fitting in memory.
 
+### `connect_mdb_instance(instance, database="admin", username=None, password=None, enable_exception=False)`
+
+Returns a pymongo **`Database`**, or `None` on failure — not a client and not a connection. pymongo
+hands out a client, a database and a collection as three separate objects, and the database is the one
+everything else hangs off, so `connection["Users"]` is the collection and the write and read functions
+take the collection by name. The sibling returns all three in a `PSCustomObject` because the Mdbc
+module needs all three; the `-Collection` parameter it has for that reason is gone here.
+
+Two consequences worth knowing at the call site:
+
+- **A `Database` has no `close()`.** The client behind it does, as `connection.client.close()`. Every
+  other connect function in `lib/` returns something you close directly.
+- **It pings.** `MongoClient` does not contact the server until the first operation, so without that
+  ping the function would return a database object for a server that is not running and
+  `06_test_connections.py` would report success. The ping makes it fail where the other four fail.
+
+There is no `pooled_connection`, because `Connect-MdbInstance` has none — and it would have nothing to
+switch: a `MongoClient` is a connection pool whether you ask for one or not.
+
+### `write_mdb_collection(connection, collection, data=None, batch_size=1000, truncate_collection=False, enable_exception=False)`
+
+Inserts a list of dicts into `collection` with `insert_many`, in batches of `batch_size`, printing
+documents done, percentage and documents/sec.
+
+**The shortest of the five write functions, and for one reason:** there is no target schema. The other
+four begin by asking the target for its columns and matching the source against them case
+insensitively. A collection has no columns, so there is nothing to ask and nothing to match — the
+documents go in as they were handed over, and whoever built them decided what type each value has.
+That is why `demo/02_stackexchange.ipynb` builds the dicts in the open, exactly as the sibling does.
+
+`truncate_collection=True` drops the collection, and the first insert creates it again — MongoDB has
+no `TRUNCATE`, and this is what the sibling does too.
+
+`data` is a list of dicts rather than a DataFrame, which is the one place the five write functions
+disagree. `Write-MdbCollection` takes an array of `PSCustomObject`, and a document is a dict, so this
+keeps both sides recognisable. There is no `data_reader` branch: nothing streams into MongoDB yet.
+
+Three parameters of the sibling are missing. `-Convert`, `-Id` and `-Property` are options of
+`Add-MdbcData` that shape the documents on the way in; here the caller shapes the dicts instead, which
+is fewer moving parts and puts the shaping on screen.
+
+### `read_mdb_collection(connection, collection, filter=None, first=None, skip=None, project=None, sort=None, as_type="DataFrame", enable_exception=False)`
+
+Runs `find` and returns the documents, as a `DataFrame` (default) or as `dict` — the list of documents
+as pymongo produced them. There is no `list`, because a document already *is* a dict, and no
+`single_value`.
+
+`filter`, `project` and `sort` are passed straight through, so a call site reads almost like the
+sibling's: `-Filter @{ Location = 'Canada' }` becomes `filter={"Location": "Canada"}`. `filter`
+shadows the builtin, which is deliberate — the naming rule says parameters keep the sibling's names.
+
+`-Last` is missing. pymongo has no equivalent, it would mean reversing the sort and limiting, and no
+demo uses it.
+
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
@@ -224,11 +278,11 @@ a different name for them. A tick marks what exists:
 
 | Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
 | --- | --- | --- | --- | --- | --- |
-| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | `connect_mdb_instance` | `connect_mio_instance` |
+| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | `connect_mio_instance` |
 | Query, all at once | ✔ `invoke_sql_query` | ✔ `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
-| Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | `read_mdb_collection` | — |
+| Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | ✔ `read_mdb_collection` | — |
 | Cursor for streaming into a writer | ✔ `get_sql_data_reader` | ✔ `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
-| Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | `write_mdb_collection` | — |
+| Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | ✔ `write_mdb_collection` | — |
 | File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
@@ -240,9 +294,13 @@ column metadata to return and already streams, and MinIO stores whole files, so 
 
 Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
 which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
-`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo` when its scenario arrives), so those two cells
-of the grid disappear. For Oracle that saved more than the download: `oracledb` in thin mode needs no
-Oracle Instant Client at all.
+`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo`), so those two cells of the grid disappear. For
+Oracle that saved more than the download: `oracledb` in thin mode needs no Oracle Instant Client at
+all.
+
+One sibling function has no cell in this grid at all: `Remove-MdbCollection`. Dropping a collection is
+what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — but the
+omission is a decision nobody has made, rather than one that has been made.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.

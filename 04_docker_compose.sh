@@ -42,6 +42,11 @@ wait_for "PostgreSQL" 150 \
     docker compose exec -T postgres psql -U postgres -tAc \
     "SELECT COUNT(*) FROM pg_database WHERE datname = 'stackexchange'"
 
+wait_for "MongoDB" 150 \
+    docker compose exec -T mongo mongosh --quiet -u stackexchange -p 'Passw0rd!' \
+    --authenticationDatabase stackexchange stackexchange \
+    --eval 'db.runCommand({ ping: 1 }).ok'
+
 # Oracle needs a command of its own, because sqlplus takes its query on stdin and not as an
 # argument. Connecting as the demo user is the check: while the startup scripts have not run,
 # that user does not exist yet and sqlplus simply fails.
