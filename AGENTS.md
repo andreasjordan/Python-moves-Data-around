@@ -39,6 +39,11 @@ imports the files into SQL Server and PostgreSQL. Streaming, MongoDB and MinIO a
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
 
+**When something is wrong in the sibling repository, append an entry to `SIBLING-FINDINGS.md`** rather
+than fixing it there. That file is the work list for a session opened in the PowerShell repository, and
+each entry records whether this repository — which inherited `docker/` verbatim — is already fixed, so
+the two do not drift unnoticed.
+
 **When a design decision is made, append an entry to `DIFFERENCES.md`** — what the sibling does, what
 Python forced, the evidence, the decision, and what was rejected. That file is the record of *why* the
 port looks the way it does, and it is the one place where the rejected alternatives are written down.
