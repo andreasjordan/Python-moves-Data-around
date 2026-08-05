@@ -1,5 +1,9 @@
 # Requires: Docker Compose 2.30.0 and later
-name: powershell-moves-data-around
+#
+# The project name has to differ from the one in the sibling repository, otherwise
+# "docker compose up" here would adopt and recreate the containers of that repository.
+# The published ports are still the same in both, so only one of them can run at a time.
+name: python-moves-data-around
 services:
 
   sqlserver:
@@ -97,16 +101,19 @@ services:
       - ./minio-policy-stackexchange.json:/etc/minio/init/policy-stackexchange.json:ro
     entrypoint: /etc/minio/init/init.sh
 
-  photoservice:
-    # To find latest PowerShell images, see https://mcr.microsoft.com/en-us/artifact/mar/powershell/tags
-    image: mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04
-    volumes:
-      - ./photoservice-app.ps1:/PhotoService/app.ps1:ro
-      - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
-      - /usr/local/share/powershell/Modules:/usr/local/share/powershell/Modules:ro
-      - ../lib:/PhotoService/lib:ro
-    working_dir: /PhotoService
-    command: pwsh -File /PhotoService/app.ps1
+  # The PhotoService application belongs to a demo scenario that is not ported yet.
+  # It is disabled until then, because photoservice-app.ps1 dot-sources ./lib/*-Pg*.ps1
+  # and mounts the PowerShell modules from the WSL2 host - and neither exists here any more.
+  #photoservice:
+  #  # To find latest PowerShell images, see https://mcr.microsoft.com/en-us/artifact/mar/powershell/tags
+  #  image: mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04
+  #  volumes:
+  #    - ./photoservice-app.ps1:/PhotoService/app.ps1:ro
+  #    - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
+  #    - /usr/local/share/powershell/Modules:/usr/local/share/powershell/Modules:ro
+  #    - ../lib:/PhotoService/lib:ro
+  #  working_dir: /PhotoService
+  #  command: pwsh -File /PhotoService/app.ps1
 
 volumes:
   sqlserver: {}

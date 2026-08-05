@@ -36,8 +36,8 @@ repository is being ported scenario by scenario, and so far only the first one i
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
 | `lib/` | Three functions, SQL Server only |
-| Containers | Complete, all scenarios' databases are created |
-| Sample data setup and connection test | Still the PowerShell versions from the sibling repository, and they do not run here yet |
+| Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
+| Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
 The remaining scenarios — StackExchange, Geodata, PhotoService, ProjectStatus — are described in the
 sibling repository and will follow.
@@ -65,7 +65,7 @@ Planned, in the order the scenarios will be ported:
 
 | Path | Content |
 | --- | --- |
-| `01_setup.ps1` … `06_test_connections.ps1` | The setup steps. `01_setup.ps1` runs all of them. Still PowerShell, see "Current state". |
+| `01_setup.ps1` … `06_test_connections.py` | The setup steps. `01_setup.ps1` runs all of them. |
 | `start_containers.ps1` | Restarts the containers after a reboot. |
 | `data/` | One directory per scenario for the sample data. The generated and downloaded files are not part of the repository. |
 | `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
@@ -96,8 +96,7 @@ default. That is how `sys.path.append(str(Path("../lib").resolve()))` finds the 
 - Excel files will be read into a pandas DataFrame
 - The DataFrame will be written into a SQL Server database
 
-The Excel files are currently created by the PowerShell script `05_sample_data_setup.ps1` from the
-sibling repository. Porting that step to Python is one of the next things to do.
+The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/sample.json`.
 
 
 
@@ -161,27 +160,22 @@ Remove-Item -Path $PWD\Python-moves-Data-around.zip
 
 ### Start the installation
 
-`01_setup.ps1` runs all six steps, but steps 3, 5 and 6 are still the sibling repository's PowerShell
-versions and stop with an error here. Until they are ported, run the setup like this in a non-elevated
-PowerShell:
+To run all setup steps, simply execute `01_setup.ps1` in a non-elevated PowerShell. It shells into WSL2
+for each of them:
 
-```
-wsl --cd $PWD --user root ./02_wsl2_setup.sh
-wsl --cd $PWD --user root pwsh ./03_pwsh_setup.ps1
-wsl --shutdown
-wsl --cd $PWD --user root ./04_docker_compose.sh
-wsl --cd $PWD pwsh ./05_sample_data_setup.ps1
-```
+| Step | Runs as | What it does |
+| --- | --- | --- |
+| `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
+| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc` |
+| `04_docker_compose.sh` | root | Starts the containers |
+| `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
+| `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |
 
-Two of these stop with an error, and both times that is expected at the moment:
+Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
+installed for your user account and not for root, which is why the later steps do not use `--user root`.
 
-- Step 3 installs the PowerShell modules and then fails on its last two lines. The modules are
-  installed by then, and `ImportExcel` is the one the next step needs.
-- Step 5 writes `data/timesheets/*.xlsx` and then fails at the StackExchange section, which needs
-  functions that have not been ported yet. The Timesheets demo has everything it needs at that point.
-
-Finally run `start_containers.ps1`. It keeps running WSL2 so that the containers stay up — if you exit,
-WSL2 shuts down along with all of them.
+At the end, the script enters WSL2 to keep all Docker containers running. If you exit, WSL2 will shut
+down along with all containers.
 
 
 ### Restart the docker containers

@@ -87,10 +87,10 @@ The grid is intentionally not square, for the same reasons as in the sibling rep
 column metadata to return and already streams, and MinIO stores whole files, so `get_mio_file` and
 `set_mio_file` cover it.
 
-Two things the sibling needs and this repository will not: `Import-OraLibrary` and `Import-PgLibrary`,
-which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed
-(`oracledb`, `psycopg`, `pymongo`), so those two cells of the grid disappear. Note that
-`03_pwsh_setup.ps1` and `06_test_connections.ps1` still call them, and will fail until they are ported.
+Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
+which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
+`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo` when their scenarios arrive), so those two cells
+of the grid disappear.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.

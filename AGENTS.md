@@ -28,17 +28,23 @@ The repository is early. Only the **Timesheets** scenario exists, and only for S
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
 | `lib/` | Three functions, SQL Server only: `connect_sql_instance`, `invoke_sql_query`, `write_sql_table`. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
-| `02_wsl2_setup.sh`, `04_docker_compose.sh` | Work. `02` installs pyenv and Python 3.14.6 on top of what the sibling does. |
-| `03_pwsh_setup.ps1` | Installs the PowerShell modules, then **fails on its last two statements** — it dot-sources `lib/Import-OraLibrary.ps1` and `lib/Import-PgLibrary.ps1`, which do not exist here. The modules are installed by then. |
-| `05_sample_data_setup.ps1` | `Get-ChildItem lib/*-*.ps1` matches nothing and stays silent, so the **Timesheets block still runs** and creates `data/timesheets/*.xlsx`. It then **fails at `Connect-MioInstance`** in the StackExchange block. |
-| `06_test_connections.ps1` | **Fails immediately** at `Import-OraLibrary`. |
-| `01_setup.ps1` | Chains all of the above, so it throws at step `03`. |
-| `docker/photoservice-app.ps1` | **Broken here**, same reason: it dot-sources `./lib/*-Pg*.ps1`. The `photoservice` container cannot start its app. |
-| `docker/docker-compose.yaml` | Still carries `name: powershell-moves-data-around` and the same host ports as the sibling. The two repositories cannot run their containers at the same time on one machine. |
+| The setup chain | Ported to Python and consistent, but **not yet run end to end from a clean WSL2**. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
+| `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
+| `05_sample_data_setup.py` | Timesheets only. The StackExchange and Geodata blocks of the sibling's `05_sample_data_setup.ps1` were dropped rather than ported; they come back with their scenarios. |
+| `06_test_connections.py` | SQL Server / Timesheets only. It grows one block per ported scenario. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
-They are known, and each one is a decision the repository owner has not made yet — a `.ps1` here is
-either waiting to be ported to Python or waiting to be deleted.
+They are known, and each one is a decision the repository owner has not made yet.
+
+The setup runs Python **inside WSL2**, from a pyenv installation that belongs to the default user
+(uid 1000), not to root. Two things follow, and both have already bitten this repository once:
+
+- A script started by `01_setup.ps1` is **not interactive**, and `~/.bashrc` returns immediately when
+  it is not. The pyenv initialisation therefore lives in `~/.profile`, and steps 05 and 06 are started
+  with `bash -lc` so that a login shell reads it. Never move that initialisation back into `~/.bashrc`
+  alone.
+- Steps that need Python must **not** run `--user root`. `/root` is `drwx------`, so root's home is
+  invisible to the user that owns the pyenv installation.
 
 ## Demo notebooks are stepped through, never run
 
@@ -66,7 +72,7 @@ imported.
 
 | Path | What it is |
 | --- | --- |
-| `01_setup.ps1` … `06_test_connections.ps1` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest. Still PowerShell, still partly the sibling's. |
+| `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. |
 | `start_containers.ps1` | Restarts the Docker containers after a reboot. |
 | `data/<scenario>/` | Sample data per scenario. Generated and downloaded artifacts are gitignored; only `README.md` and `sample.json` (plus the photos) are committed. |
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
@@ -236,8 +242,9 @@ A scenario touches all of these. Miss one and the repository is inconsistent.
 
 1. `data/<name>/README.md` and, if the data is generated, `data/<name>/sample.json`
 2. The generated or downloaded artifact pattern in `.gitignore`
-3. The sample-data step — today that is the scenario block in `05_sample_data_setup.ps1`; a Python
-   replacement for it is the obvious next thing to build
+3. The scenario block in `05_sample_data_setup.py`, and the connection block in
+   `06_test_connections.py` — the sibling's `05_sample_data_setup.ps1` still has the download and
+   upload code for the scenarios that are not ported yet
 4. `docker/sqlserver-<name>.sql` (and the Oracle/Postgres equivalent if used), plus the mount in
    `docker/docker-compose.yaml` and the line in `docker/sqlserver-init.sh` — for the ported scenarios
    these all already exist, since `docker/` came over complete

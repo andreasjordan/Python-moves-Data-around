@@ -20,8 +20,8 @@ These are deliberate. Reporting them is noise:
 - Committed notebook outputs, and cells whose last line is a bare variable name
 - Imports repeated in a later notebook cell, code commented out on purpose (`os.startfile`,
   `DROP TABLE`), and variables that are only inspected interactively
-- The `.ps1` files that are still the sibling repository's, and the `powershell-moves-data-around`
-  compose project name — these are listed as known state in `AGENTS.md`
+- `docker/photoservice-app.ps1` still being the sibling's, and the `photoservice` service being
+  commented out in `docker-compose.yaml` — these are listed as known state in `AGENTS.md`
 
 ## Do report, in this order
 
