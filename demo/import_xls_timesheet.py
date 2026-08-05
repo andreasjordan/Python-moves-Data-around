@@ -1,15 +1,18 @@
-import datetime
-import pandas as pd
+from glob import glob
 from pathlib import Path
+
+import pandas as pd
 
 
 def import_xls_timesheet(path):
     """Read Excel timesheets and return a clean DataFrame."""
 
     frames = []
-    path = Path(path)
 
-    for file in path.glob("*.xlsx"):
+    # The path is a file pattern, not a directory, the same as the -Path of the sibling
+    # function. A directory would also pick up the Report.xlsx that the demo writes at the
+    # end, and reading that as a timesheet fails on the second run of the notebook.
+    for file in sorted(Path(name) for name in glob(path)):
         print(f"📄 File: {file.name}")
 
         excel = pd.ExcelFile(file)
