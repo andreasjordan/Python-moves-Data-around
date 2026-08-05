@@ -53,7 +53,7 @@ Runs a query and returns the whole result in memory.
   in autocommit mode, and the function returns `None`.
 - `query_timeout` is present but commented out — pyodbc has no built-in statement timeout.
 
-### `write_sql_table(connection, table, data=None, batch_size=1000, truncate_table=False)`
+### `write_sql_table(connection, table, data=None, batch_size=1000, truncate_table=False, enable_exception=False)`
 
 Bulk-loads a pandas DataFrame into `table`, which may be `schema.table`. Reads the target's column list
 with `SELECT TOP 0 *`, reindexes the DataFrame onto exactly those columns — extra columns are dropped,
@@ -61,10 +61,13 @@ missing ones become `NULL` — then inserts with `fast_executemany` in batches o
 after each batch and printing rows done, percentage and rows/sec. `truncate_table=True` empties the
 table first.
 
-**This function does not yet meet the contract** described in `AGENTS.md`: it has no
-`enable_exception` parameter, it raises `TypeError`/`ValueError` directly instead of going through the
-`[ERROR]`-and-`None` path, its progress output has no `[VERBOSE]` prefix, and its cursor is not closed
-when a batch fails. Bringing it in line is the first thing to do here.
+Dropping extra columns and writing `NULL` for missing ones is not a shortcut — it is what the sibling's
+`Write-SqlTable` does for its `-Data` parameter as well, because it fills the target's columns from
+each source object and leaves the rest untouched.
+
+Two things the sibling has and this function does not, both waiting for the scenarios that need them:
+`-DataReader`, for streaming from one database into another without going through memory, and
+`-Transaction`.
 
 ## Gaps in the grid
 

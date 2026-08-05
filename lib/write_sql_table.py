@@ -1,6 +1,7 @@
-import pyodbc
 import time
+
 import pandas as pd
+
 
 def _quote_identifier(name):
     return f"[{name.replace(']', ']]')}]"
@@ -15,75 +16,74 @@ def write_sql_table(
     table,
     data=None,
     batch_size=1000,
-    truncate_table=False
+    truncate_table=False,
+    enable_exception=False
 ):
-    """
-    Python equivalent of Write-SqlTable using pyodbc bulk insert.
+    cursor = None
 
-    The `data` parameter must be a pandas DataFrame.
-    """
+    try:
+        if not isinstance(data, pd.DataFrame):
+            raise Exception("No data provided, data has to be a pandas DataFrame")
 
-    if not isinstance(data, pd.DataFrame):
-        raise TypeError("data must be a pandas DataFrame")
-    if data.empty:
-        raise ValueError("No data provided")
+        if data.empty:
+            raise Exception("No rows to import, the DataFrame is empty")
 
-    cursor = connection.cursor()
+        quoted_table = _quote_table_name(table)
+        print(f"[VERBOSE] Importing data into {quoted_table}")
 
-    quoted_table = _quote_table_name(table)
-    print(f"Importing data into {quoted_table}")
+        print("[VERBOSE] Creating cursor")
+        cursor = connection.cursor()
 
-    # Get table schema (column names)
-    cursor.execute(f"SELECT TOP 0 * FROM {quoted_table}")
-    columns = [column[0] for column in cursor.description]
+        # Get the column names of the target table
+        cursor.execute(f"SELECT TOP 0 * FROM {quoted_table}")
+        columns = [column[0] for column in cursor.description]
 
-    # Optional truncate
-    if truncate_table:
-        print("Truncating table...")
-        cursor.execute(f"TRUNCATE TABLE {quoted_table}")
-        connection.commit()
+        if truncate_table:
+            print("[VERBOSE] Truncating table")
+            cursor.execute(f"TRUNCATE TABLE {quoted_table}")
+            connection.commit()
 
-    # Prepare insert statement
-    column_list = ", ".join(columns)
-    placeholders = ", ".join(["?"] * len(columns))
+        # Build the insert statement from the target schema
+        quoted_columns = ", ".join(_quote_identifier(column) for column in columns)
+        placeholders = ", ".join(["?"] * len(columns))
+        insert_sql = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
 
-    quoted_columns = ", ".join(_quote_identifier(col) for col in columns)
-    insert_sql = f"""
-        INSERT INTO {quoted_table} ({quoted_columns})
-        VALUES ({placeholders})
-    """
+        # Align the DataFrame to the target: extra columns are dropped, missing ones become NULL
+        data = data.reindex(columns=columns)
+        values = [tuple(row) for row in data.itertuples(index=False, name=None)]
 
-    # Align DataFrame to schema order and drop extra columns
-    data = data.reindex(columns=columns)
+        # Enable fast bulk mode
+        cursor.fast_executemany = True
 
-    # Convert DataFrame rows to tuples aligned to schema
-    values = [tuple(row) for row in data.itertuples(index=False, name=None)]
+        total_rows = len(values)
+        print(f"[VERBOSE] Inserting {total_rows} rows")
 
-    # Enable fast bulk mode
-    cursor.fast_executemany = True
+        start_time = time.time()
 
-    total_rows = len(values)
-    print(f"Inserting {total_rows} rows...")
+        for start in range(0, total_rows, batch_size):
+            cursor.executemany(insert_sql, values[start:start + batch_size])
+            connection.commit()
 
-    start_time = time.time()
+            inserted = min(start + batch_size, total_rows)
+            elapsed = time.time() - start_time
+            rate = inserted / elapsed if elapsed > 0 else 0
 
-    # Batch insert
-    for i in range(0, total_rows, batch_size):
-        batch = values[i:i + batch_size]
-        cursor.executemany(insert_sql, batch)
-        connection.commit()
+            print(
+                f"[VERBOSE] {inserted}/{total_rows} rows inserted "
+                f"({inserted / total_rows * 100:.1f}%) "
+                f"- {int(rate)} rows/sec"
+            )
 
-        inserted = min(i + batch_size, total_rows)
-        elapsed = time.time() - start_time
+        print("[VERBOSE] Bulk insert complete")
 
-        rate = inserted / elapsed if elapsed > 0 else 0
+    except Exception as e:
+        message = f"Writing table failed: {str(e)}"
+        if enable_exception:
+            raise Exception(message)
+        else:
+            print(f"[ERROR] {message}")
+            return None
 
-        print(
-            f"{inserted}/{total_rows} rows inserted "
-            f"({inserted / total_rows * 100:.1f}%) "
-            f"- {int(rate)} rows/sec"
-        )
-
-    cursor.close()
-
-    print("Bulk insert complete.")
+    finally:
+        if cursor is not None:
+            cursor.close()

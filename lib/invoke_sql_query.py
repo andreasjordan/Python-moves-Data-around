@@ -1,5 +1,5 @@
 import re
-import pyodbc
+
 import pandas as pd
 
 
@@ -52,6 +52,8 @@ def invoke_sql_query(
     parameter_values=None,
     enable_exception=False
 ):
+    cursor = None
+
     try:
         print("[VERBOSE] Creating cursor")
         cursor = connection.cursor()
@@ -93,7 +95,9 @@ def invoke_sql_query(
                 return None
 
             else:
-                return rows
+                # The counterpart of the [ValidateSet] on the -As parameter of the sibling function.
+                # Without this, a typo would silently return a different type than the caller expects.
+                raise Exception(f"Unknown as_type '{as_type}', use DataFrame, dict, list or single_value")
 
         else:
             # Non-query SQL (DDL/DML) executed successfully
@@ -101,7 +105,7 @@ def invoke_sql_query(
                 connection.commit()
             print(f"[VERBOSE] Non-query executed, rowcount={cursor.rowcount}")
             return None
-        
+
     except Exception as e:
         message = f"Query failed: {str(e)}"
         if enable_exception:
@@ -109,3 +113,7 @@ def invoke_sql_query(
         else:
             print(f"[ERROR] {message}")
             return None
+
+    finally:
+        if cursor is not None:
+            cursor.close()
