@@ -41,7 +41,7 @@ repository is being ported scenario by scenario:
 | Part | State |
 | --- | --- |
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
-| StackExchange demo | In progress, see `demo/02_stackexchange.ipynb`. Only MinIO is missing. |
+| StackExchange demo | Done, see `demo/02_stackexchange.ipynb` |
 | `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
 | Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
@@ -64,8 +64,12 @@ Working today:
 
 Planned, in the order the scenarios will be ported:
 
-- MinIO
 - JSON files, GPX files, JPEG files
+
+Deliberately not planned: **MinIO**. The sibling repository uploads the sample files to it and reads
+them back, signing the requests by hand. That is not being ported — MinIO changed its licence, and
+uploading and downloading files is a different subject from getting rows into and out of a database,
+which is what this repository is about.
 
 
 
@@ -120,8 +124,10 @@ The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/s
 - Data will be streamed from table to table, in all nine directions between the three systems
 - As a bonus, the same data goes into MongoDB, which has no schema to convert against at all
 
-This scenario is still being built. Compared to the PowerShell version it is missing the upload to and
-download from MinIO.
+Compared to the PowerShell version, two things are missing. The upload to and download from MinIO is
+not being ported at all, for the reasons above. And the PowerShell demo has a bonus section that
+streams the same data into an Azure SQL Database, which needs Azure resources rather than a local
+container, so it is not part of this demo as it stands.
 
 
 
@@ -134,6 +140,9 @@ sibling repository.
 These containers are used: SQL Server 2025, Oracle Database Express Edition 21c, PostgreSQL with
 PostGIS, pgAdmin, MongoDB, MinIO, and one running the PhotoService application. The exact image versions
 are pinned in `docker/docker-compose.yaml`.
+
+The MinIO container still starts, because `docker/` was taken over from the sibling unchanged, but no
+demo here uses it any more. The PhotoService container is commented out until its scenario is ported.
 
 Two of the containers have a web interface:
 

@@ -21,7 +21,7 @@ This is the counterpart to dot-sourcing in the sibling repository
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
-**pg** = PostgreSQL · **mdb** = MongoDB · **mio** = MinIO.
+**pg** = PostgreSQL · **mdb** = MongoDB. The sibling also has **mio** = MinIO, which is not ported.
 
 Every function takes `enable_exception=False`. With it, a failure raises; without it, the function
 prints `[ERROR] …` and returns `None`. Callers turn it on per call — there is no equivalent of
@@ -274,11 +274,13 @@ demo uses it.
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
-a different name for them. A tick marks what exists:
+a different name for them. **✔** marks what exists, a bare name is a cell that could still be filled,
+**—** is a cell that makes no sense for that provider, and **✖** is a cell that will stay empty because
+somebody decided so:
 
 | Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
 | --- | --- | --- | --- | --- | --- |
-| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | `connect_mio_instance` |
+| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | ✖ |
 | Query, all at once | ✔ `invoke_sql_query` | ✔ `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
 | Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | ✔ `read_mdb_collection` | — |
 | Cursor for streaming into a writer | ✔ `get_sql_data_reader` | ✔ `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
@@ -286,11 +288,15 @@ a different name for them. A tick marks what exists:
 | File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
-| Object storage | — | — | — | — | `get_mio_file`, `get_mio_file_list`, `set_mio_file`, `remove_mio_file` |
+| Object storage | — | — | — | — | ✖ |
 
 The grid is intentionally not square, for the same reasons as in the sibling repository: MongoDB has no
-column metadata to return and already streams, and MinIO stores whole files, so `get_mio_file` and
-`set_mio_file` cover it.
+column metadata to return and already streams.
+
+**The MinIO column is ✖ throughout, and that is a decision rather than a backlog.** The sibling has
+`connect_mio_instance` and four file functions; none of them is coming here. MinIO changed its licence,
+and uploading and downloading files is a different question from the one every other provider in this
+grid answers. The reasoning, and what it costs, is in `DIFFERENCES.md`. Do not fill these cells in.
 
 Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
 which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
@@ -299,8 +305,8 @@ Oracle that saved more than the download: `oracledb` in thin mode needs no Oracl
 all.
 
 One sibling function has no cell in this grid at all: `Remove-MdbCollection`. Dropping a collection is
-what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — but the
-omission is a decision nobody has made, rather than one that has been made.
+what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — but unlike
+the MinIO column, that omission is a decision nobody has made, rather than one that has been made.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.

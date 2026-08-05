@@ -436,6 +436,45 @@ to hide a thing worth showing.
 what these files carry, so every one of the 12220 `LastAccessDate` values matches the file. Checked
 rather than assumed, because the Oracle entry above is what happens otherwise.
 
+## MinIO
+
+### Not ported, and not pending either
+
+**The sibling:** has `Connect-MioInstance` and four file functions, `Get-MioFile`,
+`Get-MioFileList`, `Set-MioFile` and `Remove-MioFile`. They hand-roll AWS SigV4 request signing as
+script methods on a `PSCustomObject`, with no SDK involved. `05_sample_data_setup.ps1` uploads the
+StackExchange files to a bucket, and `demo/02_stackexchange.ps1` ends by listing the bucket and
+reading `Users.xml` back out of it.
+
+**Decision: this is out of scope, not on the to-do list.** Two independent reasons, and either would
+have been enough:
+
+- **MinIO changed its licence.** Building a teaching repository on it is no longer something to
+  recommend to an audience.
+- **It is not what this repository is about.** Every other provider here answers the same question —
+  how do rows get into and out of a database, and what has to happen to their types on the way. MinIO
+  answers a different one: how does a *file* get uploaded and downloaded. The demo would show a file
+  going up and coming back down unchanged, which is a storage story rather than a data-movement story.
+
+**What that costs, and it is worth being honest about it:** the sibling's hand-rolled SigV4 is the
+most interesting code in either repository, precisely because nothing hides it. Porting it would have
+meant either doing the same in Python — signing requests by hand — or reaching for `boto3` or `minio`,
+which would have been the first time a library hid the protocol being demonstrated, the same category
+of decision as "no SQLAlchemy". That comparison would have been a good five minutes of a talk. It is
+not enough to keep a deprecated dependency for.
+
+**Consequences elsewhere:**
+
+- The `mio` column of the function grid in `lib/README.md` stays empty **by decision**. Nobody should
+  read it as a gap and fill it in.
+- The `minio` service is still in `docker/docker-compose.yaml`, together with `minio-init.sh` and the
+  two policy files, and `06_test_connections.py` still prints the console URL. All of it is inherited
+  from the sibling, none of it is used by a ported demo, and removing it is a separate decision that
+  has not been made — the `photoservice` service is commented out in the same file for a comparable
+  reason.
+- `05_sample_data_setup.py` downloads the StackExchange files and stops there. The upload block of the
+  sibling has no counterpart and will not get one.
+
 ## Excel
 
 ### Writing a report

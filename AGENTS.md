@@ -23,18 +23,18 @@ probably right. If it adds abstraction, indirection or defensive layers, it is p
 
 The repository is early. **Timesheets** is complete. **StackExchange** is being built step by step and
 imports the files into SQL Server, PostgreSQL, Oracle and MongoDB and streams between the three
-relational ones. MinIO is still missing.
+relational ones. MinIO was dropped on purpose and is not coming — see `DIFFERENCES.md`.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
-| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. No MinIO yet. |
-| `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. MinIO is empty. |
+| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
+| `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. |
 | `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
-| `05_sample_data_setup.py` | Timesheets, plus the StackExchange **download**. The upload of those files to MinIO is not ported yet, and neither is the Geodata block. They come back with their scenarios. |
+| `05_sample_data_setup.py` | Timesheets, plus the StackExchange **download**. The sibling's upload of those files to MinIO has no counterpart and will not get one. The Geodata block is not ported yet and comes back with its scenario. |
 | `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB. It grows one block per ported scenario and per provider. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
@@ -87,19 +87,22 @@ immediately after a restart. All four databases have their own wait now. Oracle'
 function rather than a one-liner, because `sqlplus` takes its query on stdin, and it gets 15 minutes
 instead of 5, because Oracle takes far longer to start than the other two.
 
-## The StackExchange port — remaining steps
+## The StackExchange port — finished
 
-The scenario is being built in small steps, deliberately not in the order of the sibling's demo, so
-that each step settles one design question. Done: the sample data, reading the XML, the SQL Server
-import, the PostgreSQL import, streaming table to table, Oracle, and MongoDB. One step is left:
+The scenario was built in small steps, deliberately not in the order of the sibling's demo, so that
+each step settled one design question: the sample data, reading the XML, the SQL Server import, the
+PostgreSQL import, streaming table to table, Oracle, and MongoDB. All of it is done.
 
-### MinIO
+**MinIO is not a remaining step — it is out of scope.** It was dropped because MinIO changed its
+licence, and because uploading and downloading files is not the question this repository asks. The full
+decision, including what it costs, is in `DIFFERENCES.md`. Do not treat the empty `mio` column of the
+grid in `lib/README.md` as a gap, and do not offer to fill it.
 
-`connect_mio_instance` and the four file functions, plus the upload block in `05_sample_data_setup.py`.
-**Left for last on purpose:** the sibling hand-rolls AWS SigV4 as script methods on a `PSCustomObject`,
-while Python has `boto3` and `minio`. Reaching for an SDK would be the first time a library hides the
-protocol being demonstrated — the same category of decision as "no SQLAlchemy" — so it needs an
-explicit decision from the owner rather than a default.
+The one part of the sibling's `demo/02_stackexchange.ps1` with no counterpart here is its **Azure SQL
+Database bonus**, which streams a file and a table into an Azure SQL Database. That needs Azure
+resources, the `Az` PowerShell module, a firewall rule and two environment variables, so it is not
+local and not part of the demo as it is presented. It is unported, and nobody has decided whether it
+should be.
 
 ## Demo notebooks are stepped through, never run
 
@@ -145,9 +148,9 @@ next to each other:
 | `lib/Connect-SqlInstance.ps1` → `Connect-SqlInstance` | `lib/connect_sql_instance.py` → `connect_sql_instance` |
 | `lib/Write-PgTable.ps1` → `Write-PgTable` | `lib/write_pg_table.py` → `write_pg_table` |
 
-The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL), `mdb` (MongoDB) and `mio`
-(MinIO). Helper functions that are not part of the public surface are prefixed with `_` and live in the
-same file as their caller.
+The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL) and `mdb` (MongoDB). The
+sibling also has `mio` (MinIO); nothing here uses it and nothing will. Helper functions that are not
+part of the public surface are prefixed with `_` and live in the same file as their caller.
 
 `lib/README.md` has the index of what exists today and which cells of the grid are still empty.
 
