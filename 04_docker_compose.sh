@@ -14,6 +14,10 @@ docker compose up -d
 # because the databases are created after the server accepts connections. Reading the container
 # log is not an alternative: "docker logs" keeps the output of earlier runs, so the message of a
 # previous start would be found immediately.
+#
+# Ask for the database its init script creates *last*. SQL Server used to be asked for TimeSheets,
+# which sqlserver-init.sh creates first, so the wait could return while the four databases behind
+# it were still being created.
 
 wait_for() {
     local name="$1"
@@ -36,7 +40,7 @@ wait_for() {
 
 wait_for "SQL Server" 150 \
     docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Passw0rd!' -C -h -1 -W \
-    -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = 'TimeSheets'"
+    -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = 'ProjectStatus'"
 
 wait_for "PostgreSQL" 150 \
     docker compose exec -T postgres psql -U postgres -tAc \

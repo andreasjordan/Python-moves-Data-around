@@ -29,8 +29,12 @@ not coming — see `DIFFERENCES.md`.
 **PhotoService is complete.** Binary JPEGs into PostgreSQL and on into SQL Server, incremental
 transfers against the running application, transactions, and CDC. See "The PhotoService port" below.
 
-**One scenario remains: ProjectStatus.** It has not been started, and it needs a container change
-before it can be. See "What is left to port" below before picking it up.
+**ProjectStatus is complete.** One Excel form into SQL Server, where four of the eight rows are
+rejected and the scenario is about what you do next. It needed no new `lib/` function. See "The
+ProjectStatus port" below.
+
+**With that, every scenario of the sibling repository is ported.** What is left is a short list of
+bonus sections that were each left out for a stated reason — see "What is left to port".
 
 | Area | State |
 | --- | --- |
@@ -39,12 +43,13 @@ before it can be. See "What is left to port" below before picking it up.
 | `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
 | `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end, outputs committed. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
 | `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
-| `docker/` | A copy from the sibling repository, **minus `sqlserver-projectstatus.sql`**, which was never brought over — so the `ProjectStatus` database does not exist here and neither `sqlserver-init.sh` nor `docker-compose.yaml` mentions it. Every ported scenario's databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
+| `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
+| `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]` and `pymongo` when the container starts. It is the source of everything the second half of scenario 4 transfers, so **that half of the notebook is empty unless this container is running.** |
-| `05_sample_data_setup.py` | Timesheets, the StackExchange download and the Geodata downloads. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB. It grows one block per ported scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
+| `05_sample_data_setup.py` | Timesheets, the StackExchange download, the Geodata downloads and the ProjectStatus Excel. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -98,34 +103,12 @@ instead of 5, because Oracle takes far longer to start than the other two.
 
 ## What is left to port
 
-Four scenarios are done: Timesheets, StackExchange, Geodata, PhotoService. MinIO was dropped on purpose.
-One scenario remains, and it has not been started — no notebook, no `05`/`06` block, no database.
+**All five scenarios are ported:** Timesheets, StackExchange, Geodata, PhotoService, ProjectStatus.
+MinIO was dropped on purpose. There is no next scenario.
 
-### ProjectStatus — the only one left
-
-The sibling is `demo/05_projectstatus.ps1`, 248 lines, Excel into a database. Closest in spirit to
-Timesheets, so `import_xls_timesheet.py` and the Timesheets notebook are the models to follow.
-
-**`data/projectstatus/` does not exist here at all** — the sibling has one with a `sample.json`, and the
-generation block in its `05_sample_data_setup.ps1`. That whole scenario checklist at the bottom of this
-file applies from step 1.
-
-**And neither does the database, which is the part that is easy to miss.** `docker/` was believed to be
-a complete copy of the sibling's; it is not. `sqlserver-projectstatus.sql` was never brought over, so
-`sqlserver-init.sh` has four `sqlcmd` lines where the sibling has five, and `docker-compose.yaml` has
-four mounts where the sibling has five. Step 4 of the checklist is therefore real work here, not a
-box already ticked. Adding it back is three small edits plus a `docker compose up -d`, which recreates
-the container — the named volume keeps the data, and `sqlserver-init.sh` runs on every start anyway, so
-the missing database appears without losing the others.
-
-Worth checking at the same time: `04_docker_compose.sh` waits for the **`TimeSheets`** database, which
-is the *first* thing `sqlserver-init.sh` creates. The wait can return while the later databases are
-still being created. Checking the last one in the script would be the correct test.
-
-Worth knowing before starting: the sibling's script is written for PowerShell 5.1 as well as 7.5, and
-spends its first third *teaching* — installing the module, building a credential, creating the target
-table from a `CREATE TABLE` in the script. Some of that is scaffolding this repository already has, so
-read it for the data flow rather than translating it line by line.
+What is left is three bonus sections, each left out for a reason that is written down. Do not treat
+them as a backlog — two of them need resources this repository does not have, and the third was a
+judgement call.
 
 ### Also unported, and undecided
 
@@ -133,6 +116,34 @@ The **Azure SQL bonus** at the end of the sibling's `demo/02_stackexchange.ps1`.
 table into an Azure SQL Database, and needs Azure resources, the `Az` module, a firewall rule and two
 environment variables — so it is not local. Nobody has decided whether it belongs. The **MongoDB → Azure
 SQL JSON bonus** at the end of `demo/04_photoservice.ps1` is in the same position, for the same reason.
+
+## The ProjectStatus port — finished
+
+One Excel form into one SQL Server table, and the only scenario where the **data is wrong**. The first
+four move data that already fits the target; this one is about what you do when four of the eight rows
+do not.
+
+**It needed no new `lib/` function and no change to an existing one** — `invoke_sql_query` with
+`parameter_values` and `write_sql_table` covered it, which is what the notes here had predicted.
+
+The shape of the demo, which is the sibling's: `write_sql_table` refuses the whole frame and imports
+nothing; the rows then go in one at a time; `enable_exception` turns a printed `[ERROR]` into something
+the loop can catch, so the failures can be named; the failures are collected with the database's own
+message and written back out to an Excel file; and finally the loop retries the one failure it can fix
+without guessing, recognising it by the constraint name that comes back in the error.
+
+Four rows fail, for four different reasons, and it is worth knowing which so a changed run is
+recognisable: `Late july 2026` in a `DATETIME2`, a `Status` of 79 characters against a `VARCHAR(50)`,
+`DarkRed` against the `Color` CHECK constraint, and `unknown` in an `INT`. The colour is the one that
+gets retried, so five rows end up in the table and three are handed back.
+
+Two things Python forced, both in `DIFFERENCES.md`: a missing cell is `NaN`, a **float**, so it has to
+become `None` before it is bound; and the bulk load fails in a different place than the sibling's, with
+a byte-count message that names neither the column nor the row. The second one is left visible on
+purpose — it makes the scenario's point better than a tidy message would.
+
+Unlike the other four scenarios, **this one is reproducible**: the sample data is fixed, so the same
+run produces the same numbers every time. The narration may quote them.
 
 ## The PhotoService port — finished
 

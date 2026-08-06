@@ -719,6 +719,61 @@ is exactly what a double represents badly in theory and perfectly well in practi
 form — the driver that refuses to guess costs you one line, and the driver that guesses costs you a
 day of looking for the missing digits.
 
+## ProjectStatus
+
+### A missing cell is a float
+
+**The sibling:** `Import-Excel` hands back `$null` for an empty cell, and `$null` is what ADO.NET
+wants for a `NULL`. Nothing in `demo/05_projectstatus.ps1` mentions it.
+
+**Python:** pandas has no null. A missing value in a frame is `NaN`, which is a **float**, and binding
+a float into a `VARCHAR` column is not what anybody meant. The `HR System Upgrade` row has no
+`Milestone` and no `MilestoneDate`, so this is not hypothetical — it is one of the eight rows.
+
+**Decision:** the notebook's `import_projectstatus_row` converts as it builds the parameters:
+`None if pd.isna(value) else value`. One line, in the open, where the audience can see why it is
+there.
+
+**Already handled in `lib/`:** all five `write_*_table` functions have done this since the Timesheets
+scenario — `None if position is None or pd.isna(row[position]) else row[position]`. This entry exists
+because the row-by-row path is written in the notebook rather than in `lib/`, so the same question
+comes back in a place where nobody had answered it yet.
+
+**Why it matters:** it is the smallest possible example of the difference this whole file is about.
+`$null` and `NaN` look like the same idea until one of them reaches a driver.
+
+### The bulk load fails, but not in the same place
+
+**The sibling:** `Write-SqlTable` never reaches the database. It fills a `DataTable` whose columns are
+typed from the target schema, and the fill throws:
+*"The string 'Late july 2026' was not recognized as a valid DateTime."* A client-side type conversion,
+naming the value that caused it.
+
+**Python:** `write_sql_table` binds with `fast_executemany`, which sizes its buffer from the target
+column and hands the values to the driver. It fails with
+`('String data, right truncation: length 158 buffer 100', 'HY000')` — the 79-character `Status`
+against a `VARCHAR(50)`, both counted in UTF-16 bytes, and naming neither the column nor the row.
+
+**Decision:** nothing changed. Both versions do the thing the demo is about — refuse the whole batch,
+import nothing, and report one problem out of four — and they pick a *different* one of the four to
+complain about, which is worth showing rather than smoothing over. The notebook says so.
+
+**Why it matters:** it makes the argument better than a tidy message would. The lesson of the
+scenario is that a bulk load gives you one answer for the whole batch; that the Python answer is also
+the more opaque of the two only sharpens it.
+
+### `-DataOnly` is a switch, `dropna` is a decision
+
+**The sibling:** `Import-Excel -DataOnly` drops the blank rows on the way in.
+
+**Python:** `pd.read_excel` returns them, three rows of `NaN`, because the managers left a gap between
+the sections of the form. `dropna(how="all")` is the counterpart, and it is a line in the notebook
+rather than a parameter.
+
+**Consequence, and it is the useful half:** the sibling needs two guards in its import loop, one for
+`Title -eq ""` and one for `NEW PROJECTS:`. After `dropna(how="all")` the blank rows are gone
+entirely, so only the second guard is left. Slightly less code, and the reason for it is visible.
+
 ## MongoDB
 
 ### A connection that is not a connection

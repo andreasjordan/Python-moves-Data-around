@@ -11,6 +11,7 @@ from openpyxl.styles import Alignment, Font
 timesheets_path = Path(__file__).parent / "data" / "timesheets"
 stackexchange_path = Path(__file__).parent / "data" / "stackexchange"
 geodata_path = Path(__file__).parent / "data" / "geodata"
+projectstatus_path = Path(__file__).parent / "data" / "projectstatus"
 
 # TimeSheets
 # Excel files will be generated from sample.json
@@ -128,5 +129,52 @@ with urllib.request.urlopen("https://datahub.io/core/geo-countries/r/0.geojson")
     shutil.copyfileobj(response, file)
 
 print(f"Created {countries.name} with {countries.stat().st_size / 1024 / 1024:.1f} MB")
+
+
+# ProjectStatus
+# One Excel file will be generated from sample.json
+print("Setting up the Excel file for ProjectStatus")
+
+# The demo writes ProjectStatus_Failures.xlsx into the same directory, so start from a clean one
+for file in projectstatus_path.glob("*.xlsx"):
+    file.unlink()
+
+sample_data = json.loads((projectstatus_path / "sample.json").read_text(encoding="utf-8"))
+
+# The columns are the properties of the first project, in the order they are written
+columns = list(sample_data[0].keys())
+
+workbook = Workbook()
+worksheet = workbook.active
+worksheet.title = "ProjectStatus"
+
+# The note that the project managers are supposed to read
+worksheet["A1"] = "Please fill out this form weekly and send it to project management office. Thanks!"
+worksheet["A1"].font = Font(size=14, bold=True)
+
+# The header row - the demo skips the first two rows and reads this one
+for column, header in enumerate(columns, start=1):
+    worksheet.cell(row=3, column=column, value=header).font = Font(bold=True)
+
+# One row per project. The values go in exactly as sample.json has them, and that is the whole
+# point of this scenario: "Late july 2026" is text in a column of dates and "unknown" is text in
+# a column of numbers, and the database is what finally objects to them.
+for index, row in enumerate(sample_data, start=4):
+    for column, header in enumerate(columns, start=1):
+        cell = worksheet.cell(row=index, column=column, value=row[header])
+
+        # ProgressPercent holds "unknown" as well as numbers, and a mixed column reads better
+        # lined up on one side. EPPlus lets the sibling style the whole column at once;
+        # openpyxl has no column style, so the alignment is set per cell.
+        if header == "ProgressPercent":
+            cell.alignment = Alignment(horizontal="left")
+
+# Make the columns wide enough to read
+for column, width in {"A": 25, "B": 10, "C": 15, "D": 25, "E": 10, "F": 15, "G": 25, "H": 15}.items():
+    worksheet.column_dimensions[column].width = width
+
+file = projectstatus_path / "ProjectStatus.xlsx"
+workbook.save(file)
+print(f"Created {file.name} with {len(sample_data)} rows")
 
 print("Finished")

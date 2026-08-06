@@ -10,6 +10,7 @@ __pycache__/
 demo/test.jpg
 
 data/timesheets/*.xlsx
+data/projectstatus/*.xlsx
 data/stackexchange/*.xml
 data/geodata/*.gpx
 data/geodata/*/*.gpx

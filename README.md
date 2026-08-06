@@ -44,11 +44,13 @@ repository is being ported scenario by scenario:
 | StackExchange demo | Done, see `demo/02_stackexchange.ipynb` |
 | Geodata demo | Done, see `demo/03_geodata.ipynb` |
 | PhotoService demo | Done, see `demo/04_photoservice.ipynb` |
+| ProjectStatus demo | Done, see `demo/05_projectstatus.ipynb` |
 | `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
-| Containers | All ported scenarios' databases are created, and the PhotoService application runs as a container of its own. `ProjectStatus` has no database yet. |
+| Containers | Complete — every scenario's databases are created, and the PhotoService application runs as a container of its own. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
-The one remaining scenario — ProjectStatus — is described in the sibling repository and will follow.
+Every scenario of the sibling repository is now ported, apart from the bonus sections listed under the
+demos below.
 
 
 
@@ -157,6 +159,18 @@ toll table by scraping a government website for the newest zip file.
 Compared to the PowerShell version this leaves out the two sections that replay the application's
 logging events out of MinIO, which is not ported, and the bonus that streams MongoDB documents into an
 Azure SQL Database, which needs Azure.
+
+### ProjectStatus
+
+- Setup: one Excel file will be generated from `sample.json`, filled in the way eight project managers would fill in a form
+- The rules live in the table: a primary key, three CHECK constraints, a `VARCHAR(50)` and a `DATETIME2`
+- `write_sql_table` refuses the whole thing — one statement, one answer, and nothing is imported
+- So the rows go in one at a time, and `enable_exception` turns a printed `[ERROR]` into something the loop can catch
+- Four rows are rejected for four different reasons: a date column with `Late july 2026` in it, a status longer than the column, a colour the constraint does not allow, and `unknown` where a percentage belongs
+- The failures are collected with the database's own message and written back out to an Excel file
+- Then the loop fixes what can be fixed without guessing — the constraint name comes back in the error, so a bad colour can be retried
+
+This is the scenario where the data is *wrong*, which none of the first four are.
 
 ## Infrastructure
 

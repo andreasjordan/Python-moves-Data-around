@@ -188,6 +188,27 @@ photoservice["mdb_connection"] = connect_mdb_instance(
 
 photoservice["mdb_connection"].client.close()
 
+
+# ProjectStatus
+print("Setting up variables and connections for ProjectStatus")
+
+projectstatus = {
+    "sql_instance": "127.0.0.1",
+    "sql_login": "ProjectStatus",
+    "sql_password": "Passw0rd!",
+    "sql_database": "ProjectStatus"
+}
+
+projectstatus["sql_connection"] = connect_sql_instance(
+    instance=projectstatus["sql_instance"],
+    database=projectstatus["sql_database"],
+    username=projectstatus["sql_login"],
+    password=projectstatus["sql_password"],
+    enable_exception=True
+)
+
+projectstatus["sql_connection"].close()
+
 print("Finished")
 
 print("MinIO: http://127.0.0.1:9001/login")
