@@ -1,3 +1,6 @@
+from invoke_pg_query import _prepare_query_and_params
+
+
 def _quote_identifier(name):
     return '"{}"'.format(name.lower().replace('"', '""'))
 
@@ -10,6 +13,7 @@ def get_pg_data_reader(
     connection,
     table=None,
     query=None,
+    parameter_values=None,
     enable_exception=False
 ):
     cursor = None
@@ -26,8 +30,13 @@ def get_pg_data_reader(
         # DIFFERENCE: the sibling returns an NpgsqlDataReader and disposes the command that
         # created it. Here the cursor is both, so it is returned as it is - and whoever writes
         # it into a table closes it, exactly as Write-PgTable disposes the reader it was handed.
+        query, params = _prepare_query_and_params(query, parameter_values)
+
         cursor = connection.cursor()
-        cursor.execute(query)
+        if params is not None:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
 
         print(f"[VERBOSE] Returning data reader with {len(cursor.description)} columns")
         return cursor

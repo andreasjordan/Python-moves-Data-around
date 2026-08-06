@@ -198,3 +198,32 @@ found a 4000 character Oracle limit hiding behind exactly that parameter.
 
 **Here:** the Python `05` downloads the file unfiltered, and the notebook prints the real count instead
 of asserting one.
+
+## 8. `photoservice-app.ps1` writes an order event with no order
+
+**Where:** `docker/photoservice-app.ps1`, the `NewPayment` and `NewShipment` blocks
+
+**What:** both blocks pick the order to work on with a query that may legitimately return nothing:
+
+```powershell
+OrderId = Invoke-PgQuery -Query 'SELECT id FROM order_header WHERE payment_uuid IS NULL ORDER BY RANDOM() LIMIT 1' -As SingleValue
+```
+
+If every order has already been paid for — the payment loop runs once a second and can catch up with
+the order loop, which also runs once a second — `$payment.OrderId` is `$null`. The code then carries on
+regardless: the `UPDATE` matches no row, and the `INSERT INTO order_event` writes a row whose
+`order_id` is `NULL`.
+
+**Effect:** small but real. `order_event` accumulates rows that belong to no order, and any transfer or
+join built on that table has to cope with them. The `NewShipment` block has the same hole.
+
+**How to see it:** let the application run for a while and then
+
+```sql
+SELECT COUNT(*) FROM order_event WHERE order_id IS NULL;
+```
+
+**Fix:** skip the block when the query returns nothing — three lines, one per block.
+
+**Here:** `docker/photoservice-app.py` guards both blocks with `if order_id is not None:`, with a
+comment naming this finding.

@@ -36,11 +36,16 @@ def _prepare_query_and_params(query, parameter_values):
     raise TypeError("parameter_values must be a dict, list, or tuple")
 
 
+# DIFFERENCE: the sibling takes a -Transaction and hands it to the command. In Python the
+# transaction belongs to the connection, so there is nothing to hand over - the only question is
+# who ends it. With commit=False this function neither commits nor rolls back, so several calls
+# make up one unit of work and the caller commits the connection.
 def invoke_ora_query(
     connection,
     query,
     as_type="DataFrame",  # DataFrame, dict, list, single_value
     parameter_values=None,
+    commit=True,
     enable_exception=False
 ):
     cursor = None
@@ -82,7 +87,7 @@ def invoke_ora_query(
             # ended. Oracle does not take read locks, so this hurts even less than it does on
             # SQL Server, but the open transaction is the same and the two sibling functions
             # both end it, so this one does too.
-            if not connection.autocommit:
+            if commit and not connection.autocommit:
                 connection.commit()
 
             if as_type == "list":
@@ -107,7 +112,7 @@ def invoke_ora_query(
 
         else:
             # Non-query SQL (DDL/DML) executed successfully
-            if not connection.autocommit:
+            if commit and not connection.autocommit:
                 connection.commit()
             print(f"[VERBOSE] Non-query executed, rowcount={cursor.rowcount}")
             return None
@@ -116,7 +121,8 @@ def invoke_ora_query(
         # Oracle does not abort the surrounding transaction the way PostgreSQL does, so this is
         # not strictly needed here either - see the note in invoke_pg_query, which cannot do
         # without it.
-        if not connection.autocommit:
+        # With commit=False the transaction is not ours to end, so the caller rolls it back.
+        if commit and not connection.autocommit:
             connection.rollback()
 
         message = f"Query failed: {str(e)}"

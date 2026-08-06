@@ -25,6 +25,10 @@ def _print_progress(inserted, total_rows, start_time):
         print(f"[VERBOSE] {inserted} rows inserted - {int(rate)} rows/sec")
 
 
+# DIFFERENCE: the sibling takes a -Transaction and hands it to the command. In Python the
+# transaction belongs to the connection, so there is nothing to hand over - the only question is
+# who ends it. With commit=False this function neither commits nor rolls back, so several calls
+# make up one unit of work and the caller commits the connection.
 def write_sql_table(
     connection,
     table,
@@ -33,6 +37,7 @@ def write_sql_table(
     data_reader_row_count=None,
     batch_size=1000,
     truncate_table=False,
+    commit=True,
     enable_exception=False
 ):
     cursor = None
@@ -63,7 +68,8 @@ def write_sql_table(
         if truncate_table:
             print("[VERBOSE] Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
-            connection.commit()
+            if commit:
+                connection.commit()
 
         # Build the insert statement from the target schema
         quoted_columns = ", ".join(_quote_identifier(column) for column in columns)
@@ -95,7 +101,8 @@ def write_sql_table(
 
             for start in range(0, total_rows, batch_size):
                 cursor.executemany(insert_sql, values[start:start + batch_size])
-                connection.commit()
+                if commit:
+                    connection.commit()
 
                 inserted = min(start + batch_size, total_rows)
                 _print_progress(inserted, total_rows, start_time)
@@ -125,7 +132,8 @@ def write_sql_table(
                     tuple(None if position is None else row[position] for position in positions)
                     for row in rows
                 ])
-                connection.commit()
+                if commit:
+                    connection.commit()
 
                 inserted += len(rows)
                 _print_progress(inserted, total_rows, start_time)

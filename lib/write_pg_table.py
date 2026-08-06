@@ -27,6 +27,10 @@ def _print_progress(inserted, total_rows, start_time):
         print(f"[VERBOSE] {inserted} rows inserted - {int(rate)} rows/sec")
 
 
+# DIFFERENCE: the sibling takes a -Transaction and hands it to the command. In Python the
+# transaction belongs to the connection, so there is nothing to hand over - the only question is
+# who ends it. With commit=False this function neither commits nor rolls back, so several calls
+# make up one unit of work and the caller commits the connection.
 def write_pg_table(
     connection,
     table,
@@ -35,6 +39,7 @@ def write_pg_table(
     data_reader_row_count=None,
     batch_size=1000,
     truncate_table=False,
+    commit=True,
     enable_exception=False
 ):
     cursor = None
@@ -126,12 +131,15 @@ def write_pg_table(
                     inserted += len(rows)
                     _print_progress(inserted, total_rows, start_time)
 
-        connection.commit()
+        if commit:
+            connection.commit()
 
         print("[VERBOSE] Bulk insert complete")
 
     except Exception as e:
-        connection.rollback()
+        # With commit=False the transaction is not ours to end, so the caller rolls it back
+        if commit:
+            connection.rollback()
         message = f"Writing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)

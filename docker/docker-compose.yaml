@@ -101,19 +101,23 @@ services:
       - ./minio-policy-stackexchange.json:/etc/minio/init/policy-stackexchange.json:ro
     entrypoint: /etc/minio/init/init.sh
 
-  # The PhotoService application belongs to a demo scenario that is not ported yet.
-  # It is disabled until then, because photoservice-app.ps1 dot-sources ./lib/*-Pg*.ps1
-  # and mounts the PowerShell modules from the WSL2 host - and neither exists here any more.
-  #photoservice:
-  #  # To find latest PowerShell images, see https://mcr.microsoft.com/en-us/artifact/mar/powershell/tags
-  #  image: mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04
-  #  volumes:
-  #    - ./photoservice-app.ps1:/PhotoService/app.ps1:ro
-  #    - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
-  #    - /usr/local/share/powershell/Modules:/usr/local/share/powershell/Modules:ro
-  #    - ../lib:/PhotoService/lib:ro
-  #  working_dir: /PhotoService
-  #  command: pwsh -File /PhotoService/app.ps1
+  # The PhotoService application: the shop that keeps inventing customers and orders, so that
+  # demo/04_photoservice.ipynb has a live system to transfer data away from.
+  photoservice:
+    # To find latest Python images, see https://hub.docker.com/_/python
+    image: python:3.13-slim
+    environment:
+      # Without this, print() is buffered and "docker compose logs" stays empty for minutes
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./photoservice-app.py:/PhotoService/app.py:ro
+      - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
+      - ../lib:/PhotoService/lib:ro
+    working_dir: /PhotoService
+    # The PowerShell version mounted the modules from the WSL2 host. The Python drivers are not
+    # in the stock image, so they are installed when the container starts - which keeps this a
+    # plain image with no Dockerfile to build. The app retries until the databases answer.
+    command: sh -c "pip install --quiet --root-user-action=ignore pandas 'psycopg[binary]' pymongo && python /PhotoService/app.py"
 
 volumes:
   sqlserver: {}

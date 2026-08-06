@@ -37,7 +37,7 @@ Returns an open `pyodbc.Connection`, or `None` on failure. Builds the connection
 `Trusted_Connection=yes`, so integrated security is the default. `TrustServerCertificate=yes` is always
 appended, because the container's certificate is self-signed.
 
-### `invoke_sql_query(connection, query, as_type="DataFrame", parameter_values=None, enable_exception=False)`
+### `invoke_sql_query(connection, query, as_type="DataFrame", parameter_values=None, commit=True, enable_exception=False)`
 
 Runs a query and returns the whole result in memory.
 
@@ -60,9 +60,15 @@ Runs a query and returns the whole result in memory.
 - **A `SELECT` is committed too.** DB-API opens a transaction for a read as well, and a connection left
   idle in one keeps its locks. `invoke_pg_query` has the same line, and there it is the difference
   between a working demo and a `TRUNCATE` that hangs forever.
+- **`commit=False` hands the transaction to the caller.** With it the function neither commits nor
+  rolls back, so several calls make up one unit of work. This is the port of the sibling's
+  `-Transaction`, which cannot be ported as a parameter: ADO.NET hands a transaction object to a
+  command, and in Python the transaction belongs to the connection, so there is nothing to hand over.
+  See `DIFFERENCES.md`. Note that with `commit=False` a failed statement is **not** rolled back either
+  — on PostgreSQL the caller has to, because nothing else on that connection works until it does.
 - `query_timeout` is present but commented out — pyodbc has no built-in statement timeout.
 
-### `write_sql_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+### `write_sql_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, commit=True, enable_exception=False)`
 
 Bulk-loads a pandas DataFrame, or the rows of a `data_reader`, into `table`, which may be
 `schema.table`. Reads the target's column list with `SELECT TOP 0 *` and matches the source columns
@@ -80,7 +86,10 @@ possibly in another database system - and are read in batches, so the source is 
 know how many rows are still coming. A source column with no matching target column is an error, as it
 is in the sibling.
 
-`-Transaction` is still missing, and waits for the scenario that needs it.
+`commit=False` suppresses the commit after each batch, so that this call and the ones around it make up
+one unit of work — the port of the sibling's `-Transaction`, and the reason it is not a `transaction`
+parameter is in `DIFFERENCES.md`. It is what the PhotoService demo uses to write an order header and its
+details together.
 
 ### `import_sql_table(connection, path, table, batch_size=1000, encoding="utf-8-sig", column_map=None, truncate_table=False, enable_exception=False)`
 
@@ -117,14 +126,14 @@ the signature matches `connect_sql_instance`, but it only prints a note: Npgsql 
 connection string, while psycopg keeps pooling in a separate `psycopg_pool` package that this
 repository does not use.
 
-### `invoke_pg_query(connection, query, as_type="DataFrame", parameter_values=None, enable_exception=False)`
+### `invoke_pg_query(connection, query, as_type="DataFrame", parameter_values=None, commit=True, enable_exception=False)`
 
 The same shape and the same `as_type` values as `invoke_sql_query`. The difference is in the
 parameters: psycopg has real named parameters, written `%(name)s`, so the rewrite only renames
 `:name` and `@name` and hands the dictionary over unchanged. `invoke_sql_query` has to count positions
 and reorder the values, because pyodbc has no named parameters at all.
 
-### `write_pg_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+### `write_pg_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, commit=True, enable_exception=False)`
 
 Loads a pandas DataFrame, or the rows of a `data_reader`, into `table` through `COPY`. Columns are
 matched against the table columns **case insensitively**, so a frame with `CreationDate` fills a column called
@@ -169,7 +178,7 @@ Two things this function does that its siblings do not:
   read. See the entry in `DIFFERENCES.md` — without it a `CLOB` is a lazy handle that *prints* as
   its own text, and streaming one into pyodbc fails.
 
-### `invoke_ora_query(connection, query, as_type="DataFrame", parameter_values=None, enable_exception=False)`
+### `invoke_ora_query(connection, query, as_type="DataFrame", parameter_values=None, commit=True, enable_exception=False)`
 
 The same shape and the same `as_type` values as its two siblings, and the least work of the three
 where the parameters are concerned: Oracle's own bind variable syntax **is** `:name`, so a query that
@@ -183,7 +192,7 @@ is the reverse of what `write_ora_table` wants — declaring a `CLOB` there cost
 bound into a `CLOB` column and a value bound into a function argument are not the same question. See
 `DIFFERENCES.md`.
 
-### `write_ora_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, enable_exception=False)`
+### `write_ora_table(connection, table, data=None, data_reader=None, data_reader_row_count=None, batch_size=1000, truncate_table=False, commit=True, enable_exception=False)`
 
 Loads a pandas DataFrame, or the rows of a `data_reader`, into `table` with `executemany` in batches
 — the same shape as `write_sql_table`, because Oracle has no `COPY`. Columns are matched **case
@@ -211,7 +220,7 @@ between the other two, which is the most interesting thing about it:
   that the import does *for matching* is case agnostic and needed no change; only
   `_quote_identifier` differs.
 
-### `get_sql_data_reader(connection, table=None, query=None, enable_exception=False)`, `get_ora_data_reader(...)` and `get_pg_data_reader(...)`
+### `get_sql_data_reader(connection, table=None, query=None, parameter_values=None, enable_exception=False)`, `get_ora_data_reader(...)` and `get_pg_data_reader(...)`
 
 Run `SELECT * FROM table`, or `query`, and return the open cursor. That cursor **is** the data reader:
 `Get-SqlDataReader` returns a `DbDataReader` and disposes the command behind it, but in Python the
@@ -220,10 +229,22 @@ cursor is both at once, so it is simply returned.
 The writer that receives it reads it with `fetchmany(batch_size)` and **closes it when it is done** —
 the same ownership as in the sibling, where `Write-SqlTable` disposes the reader it was handed.
 
-Two parameters of the sibling are missing: `-ParameterValues` / `-ParameterTypes`, because supporting
-them would mean copying the whole named-parameter rewrite of `invoke_*_query` into two more files, and
-no demo passes parameters to a reader; and `-QueryTimeout`, for the same reason it is missing from
-`invoke_sql_query`.
+`parameter_values` works exactly as it does in `invoke_*_query`, and it is **the same function doing the
+work**: each reader imports `_prepare_query_and_params` from its own `invoke_*_query` module rather than
+carrying a fourth, fifth and sixth copy of that regex. That is the one place in `lib/` where a `_` helper
+is used outside the file it lives in, and it is deliberate — see `DIFFERENCES.md`.
+
+It was left out until the PhotoService scenario, on the grounds that no demo passed parameters to a
+reader. That scenario passes them in six cells: "transfer everything after the id the target already
+has" is the whole technique, and the id is a parameter.
+
+Two parameters of the sibling are still missing: `-ParameterTypes`, which `invoke_*_query` does not have
+either, and `-QueryTimeout`, for the same reason it is missing from `invoke_sql_query`.
+
+**`-Transaction` needs no counterpart here, and that is not an omission.** A Python cursor is created on
+a connection and is already inside whatever transaction that connection has open, so there is nothing
+for the parameter to do. The PhotoService demo reads two tables inside one `with pg_connection.transaction():`
+block without passing anything to these functions.
 
 **A caveat that is not visible from the call site:** psycopg's normal cursor fetches the whole result
 before the first `fetchmany` returns, so `get_pg_data_reader` streams from the writer's point of view
@@ -320,6 +341,8 @@ all.
 One sibling function has no cell in this grid at all: `Remove-MdbCollection`. Dropping a collection is
 what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — but unlike
 the MinIO column, that omission is a decision nobody has made, rather than one that has been made.
+`docker/photoservice-app.py` is the one caller that wants it on its own, at startup, with no documents
+to write; it calls `connection.drop_collection("Orders")` directly, because that is the whole function.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.

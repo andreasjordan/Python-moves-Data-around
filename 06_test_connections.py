@@ -139,6 +139,55 @@ geodata["pg_connection"] = connect_pg_instance(
 
 geodata["pg_connection"].close()
 
+
+# PhotoService
+print("Setting up variables and connections for PhotoService")
+
+photoservice = {
+    "sql_instance": "127.0.0.1",
+    "sql_login": "PhotoService",
+    "sql_password": "Passw0rd!",
+    "sql_database": "PhotoService",
+    "pg_instance": "127.0.0.1",
+    "pg_user": "photoservice",
+    "pg_password": "Passw0rd!",
+    "pg_database": "photoservice",
+    "mdb_instance": "127.0.0.1",
+    "mdb_user": "photoservice",
+    "mdb_password": "Passw0rd!",
+    "mdb_database": "photoservice"
+}
+
+photoservice["sql_connection"] = connect_sql_instance(
+    instance=photoservice["sql_instance"],
+    database=photoservice["sql_database"],
+    username=photoservice["sql_login"],
+    password=photoservice["sql_password"],
+    enable_exception=True
+)
+
+photoservice["sql_connection"].close()
+
+photoservice["pg_connection"] = connect_pg_instance(
+    instance=photoservice["pg_instance"],
+    database=photoservice["pg_database"],
+    username=photoservice["pg_user"],
+    password=photoservice["pg_password"],
+    enable_exception=True
+)
+
+photoservice["pg_connection"].close()
+
+photoservice["mdb_connection"] = connect_mdb_instance(
+    instance=photoservice["mdb_instance"],
+    database=photoservice["mdb_database"],
+    username=photoservice["mdb_user"],
+    password=photoservice["mdb_password"],
+    enable_exception=True
+)
+
+photoservice["mdb_connection"].client.close()
+
 print("Finished")
 
 print("MinIO: http://127.0.0.1:9001/login")

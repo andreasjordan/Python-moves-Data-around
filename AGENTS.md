@@ -26,21 +26,25 @@ files into SQL Server, PostgreSQL, Oracle and MongoDB and streams between the th
 Geodata moves GPX and GeoJSON geometry into all three through WKT. MinIO was dropped on purpose and is
 not coming — see `DIFFERENCES.md`.
 
-**Two scenarios remain: ProjectStatus and PhotoService.** Neither has been started. See
-"What is left to port" below before picking one up.
+**PhotoService is complete.** Binary JPEGs into PostgreSQL and on into SQL Server, incremental
+transfers against the running application, transactions, and CDC. See "The PhotoService port" below.
+
+**One scenario remains: ProjectStatus.** It has not been started, and it needs a container change
+before it can be. See "What is left to port" below before picking it up.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
 | `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
 | `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
-| `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. |
-| `docker/` | Complete — a straight copy from the sibling repository. All scenarios' databases are created. |
+| `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end, outputs committed. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
+| `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
+| `docker/` | A copy from the sibling repository, **minus `sqlserver-projectstatus.sql`**, which was never brought over — so the `ProjectStatus` database does not exist here and neither `sqlserver-init.sh` nor `docker-compose.yaml` mentions it. Every ported scenario's databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
-| `docker/photoservice-app.ps1` | Still the sibling's, and it dot-sources `./lib/*-Pg*.ps1`, which does not exist here. The `photoservice` service is commented out in `docker-compose.yaml` until scenario 4 is ported, so nothing tries to start it. |
-| `05_sample_data_setup.py` | Timesheets, the StackExchange download and the Geodata downloads. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL. It grows one block per ported scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
+| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]` and `pymongo` when the container starts. It is the source of everything the second half of scenario 4 transfers, so **that half of the notebook is empty unless this container is running.** |
+| `05_sample_data_setup.py` | Timesheets, the StackExchange download and the Geodata downloads. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB. It grows one block per ported scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -94,10 +98,10 @@ instead of 5, because Oracle takes far longer to start than the other two.
 
 ## What is left to port
 
-Three scenarios are done: Timesheets, StackExchange, Geodata. MinIO was dropped on purpose. Two
-scenarios remain, and neither has been started — no `lib/` function, no notebook, no `05`/`06` block.
+Four scenarios are done: Timesheets, StackExchange, Geodata, PhotoService. MinIO was dropped on purpose.
+One scenario remains, and it has not been started — no notebook, no `05`/`06` block, no database.
 
-### ProjectStatus — the cheaper of the two
+### ProjectStatus — the only one left
 
 The sibling is `demo/05_projectstatus.ps1`, 248 lines, Excel into a database. Closest in spirit to
 Timesheets, so `import_xls_timesheet.py` and the Timesheets notebook are the models to follow.
@@ -106,31 +110,59 @@ Timesheets, so `import_xls_timesheet.py` and the Timesheets notebook are the mod
 generation block in its `05_sample_data_setup.ps1`. That whole scenario checklist at the bottom of this
 file applies from step 1.
 
+**And neither does the database, which is the part that is easy to miss.** `docker/` was believed to be
+a complete copy of the sibling's; it is not. `sqlserver-projectstatus.sql` was never brought over, so
+`sqlserver-init.sh` has four `sqlcmd` lines where the sibling has five, and `docker-compose.yaml` has
+four mounts where the sibling has five. Step 4 of the checklist is therefore real work here, not a
+box already ticked. Adding it back is three small edits plus a `docker compose up -d`, which recreates
+the container — the named volume keeps the data, and `sqlserver-init.sh` runs on every start anyway, so
+the missing database appears without losing the others.
+
+Worth checking at the same time: `04_docker_compose.sh` waits for the **`TimeSheets`** database, which
+is the *first* thing `sqlserver-init.sh` creates. The wait can return while the later databases are
+still being created. Checking the last one in the script would be the correct test.
+
 Worth knowing before starting: the sibling's script is written for PowerShell 5.1 as well as 7.5, and
 spends its first third *teaching* — installing the module, building a credential, creating the target
 table from a `CREATE TABLE` in the script. Some of that is scaffolding this repository already has, so
 read it for the data flow rather than translating it line by line.
 
-### PhotoService — the bigger one
-
-The sibling is `demo/04_photoservice.ps1`, 416 lines, plus `04_photoservice_transfer_01.ps1`. Binary
-JPEG data into PostgreSQL and on to SQL Server. `data/photoservice/` already has the photos, committed.
-
-Two costs beyond the notebook, and they are the reason this is last:
-
-- `docker/photoservice-app.ps1` is **still the sibling's**. It dot-sources `./lib/*-Pg*.ps1`, which does
-  not exist here, and mounts the PowerShell modules from the WSL2 host. The `photoservice` service is
-  commented out in `docker/docker-compose.yaml` until somebody decides whether that app gets ported to
-  Python, left as PowerShell, or dropped. **That is an open decision for the owner, not a default.**
-- Binary columns are the one data shape the port has not touched. Expect it to be its own
-  `DIFFERENCES.md` entry: `bytes` through pyodbc and psycopg, and a `BLOB` on the Oracle side if it goes
-  there, where the CLOB findings above suggest the bind rules will need measuring rather than assuming.
-
 ### Also unported, and undecided
 
 The **Azure SQL bonus** at the end of the sibling's `demo/02_stackexchange.ps1`. It streams a file and a
 table into an Azure SQL Database, and needs Azure resources, the `Az` module, a firewall rule and two
-environment variables — so it is not local. Nobody has decided whether it belongs.
+environment variables — so it is not local. Nobody has decided whether it belongs. The **MongoDB → Azure
+SQL JSON bonus** at the end of `demo/04_photoservice.ps1` is in the same position, for the same reason.
+
+## The PhotoService port — finished
+
+Binary JPEGs into PostgreSQL and on into SQL Server, then the harder half: transferring only what is
+new while an application keeps writing to the source.
+
+**It is the first scenario that needed a change to an existing `lib/` signature.** The six
+`invoke_*_query` and `write_*_table` functions now take `commit=True`; with `commit=False` they neither
+commit nor roll back, so several calls make up one unit of work. That is the port of the sibling's
+`-Transaction`, which could not be ported as a parameter at all, and it is in `DIFFERENCES.md`. Before
+it, every function in `lib/` committed unconditionally, so a transaction spanning two calls was
+impossible. The three `get_*_data_reader` functions deliberately got nothing.
+
+**The application is a container, and it is not optional.** `docker/photoservice-app.py` replaces the
+sibling's `photoservice-app.ps1`, which was still PowerShell here and could never have run. It is the
+source of every customer and order the second half of the notebook transfers, so **if that container is
+not running, those cells have nothing to find.** It also needs a few minutes of runtime before the
+notebook is interesting: the first order is scheduled ten minutes after it starts, the first payment at
+fifteen, the first shipment at twenty — the sibling's schedule, kept.
+
+**Left out on purpose, and both follow from decisions already made:**
+
+- The sibling's **"Transfer data from logging (or kafka)"** section and its **MinIO logging bonus**.
+  Both read the application's logging archives out of MinIO, which is not ported. The application still
+  produces those events — it prints them instead of archiving them — but the demo section that replayed
+  them is gone. That is the largest thing the MinIO decision has cost, and it is recorded there.
+- The **MongoDB → Azure SQL JSON bonus**, which needs Azure.
+
+**The `04_photoservice_transfer_01.ps1` loop of the sibling has no counterpart** and did not need one:
+it is the same transfer as the notebook, wrapped in a `while` loop to run unattended.
 
 ## The Geodata port — finished, minus one bonus
 
@@ -291,6 +323,11 @@ The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL) and `mdb`
 sibling also has `mio` (MinIO); nothing here uses it and nothing will. Helper functions that are not
 part of the public surface are prefixed with `_` and live in the same file as their caller.
 
+**There is exactly one exception, and it is deliberate:** each `get_*_data_reader` imports
+`_prepare_query_and_params` from its own `invoke_*_query`, rather than carrying a fourth, fifth and
+sixth copy of that regex. Do not "fix" it by copying the helper back, and do not generalise it into a
+shared module either — the reasoning is in `DIFFERENCES.md`.
+
 `lib/README.md` has the index of what exists today and which cells of the grid are still empty.
 
 **Sibling rule:** once a second provider exists, the `sql`, `ora` and `pg` implementations of a verb
@@ -434,6 +471,12 @@ paid off four times now:
 
 - Import from `lib/` and `demo/` via `sys.path`, exactly as a notebook does. Do not reimplement the
   logic in the test — the point is to exercise the shipped function.
+- **Pass the repository root in as an argument.** The scratchpad is not inside the repository, so the
+  obvious `while not (root / "lib").is_dir(): root = root.parent` never terminates — `Path("C:/").parent`
+  is `Path("C:/")`, and the script spins at 100% CPU looking like a hung database connection. That cost
+  half an hour once.
+- **Have the script write its own report file**, with `buffering=1`. PowerShell holds redirected output
+  until the process exits, so `> file` shows nothing at all while a long run is in progress.
 - Print `PASS`/`FAIL` per check and a summary at the end, so a partial failure is obvious.
 - Create and drop your own tables, and clean up.
 - Run it with `run_in_background: true`. A GeoJSON import or an Oracle round trip takes minutes.

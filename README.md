@@ -43,12 +43,12 @@ repository is being ported scenario by scenario:
 | Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
 | StackExchange demo | Done, see `demo/02_stackexchange.ipynb` |
 | Geodata demo | Done, see `demo/03_geodata.ipynb` |
+| PhotoService demo | Done, see `demo/04_photoservice.ipynb` |
 | `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
-| Containers | Complete, all scenarios' databases are created. The PhotoService container is disabled until that scenario is ported. |
+| Containers | All ported scenarios' databases are created, and the PhotoService application runs as a container of its own. `ProjectStatus` has no database yet. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
-The remaining scenarios — PhotoService and ProjectStatus — are described in the sibling repository and
-will follow.
+The one remaining scenario — ProjectStatus — is described in the sibling repository and will follow.
 
 
 
@@ -64,10 +64,7 @@ Working today:
 - XML files
 
 - GPX files, GeoJSON files
-
-Planned, in the order the scenarios will be ported:
-
-- JPEG files
+- JPEG files, as binary data in the database itself
 
 Deliberately not planned: **MinIO**. The sibling repository uploads the sample files to it and reads
 them back, signing the requests by hand. That is not being ported — MinIO changed its licence, and
@@ -146,6 +143,20 @@ container, so it is not part of this demo as it stands.
 
 Compared to the PowerShell version this leaves out the "Mauttabelle" bonus, which downloads a German
 toll table by scraping a government website for the newest zip file.
+
+### PhotoService
+
+- Setup: the photos are committed to the repository, and a container runs the shop that keeps inventing customers and orders
+- Twenty-four JPEGs go into a `bytea` column in PostgreSQL, and on into `VARBINARY(MAX)` in SQL Server
+- Binary data needs no conversion code at all - only a smaller `batch_size`, because the rows are megabytes rather than bytes
+- Then the harder half: transferring only the rows that are new, while the application keeps writing
+- Two queries against a moving source do not see the same database. Name the upper bound, or read both inside one transaction
+- An id finds new rows; only a timestamp - or Change Data Capture - finds rows that changed after they were transferred
+- This is the scenario that made `lib/` grow `commit=False`, because a transaction in Python belongs to the connection and cannot be passed to a function
+
+Compared to the PowerShell version this leaves out the two sections that replay the application's
+logging events out of MinIO, which is not ported, and the bonus that streams MongoDB documents into an
+Azure SQL Database, which needs Azure.
 
 ## Infrastructure
 

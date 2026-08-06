@@ -35,11 +35,16 @@ def _prepare_query_and_params(query, parameter_values):
     raise TypeError("parameter_values must be a dict, list, or tuple")
 
 
+# DIFFERENCE: the sibling takes a -Transaction and hands it to the command. In Python the
+# transaction belongs to the connection, so there is nothing to hand over - the only question is
+# who ends it. With commit=False this function neither commits nor rolls back, so several calls
+# make up one unit of work and the caller commits the connection.
 def invoke_pg_query(
     connection,
     query,
     as_type="DataFrame",  # DataFrame, dict, list, single_value
     parameter_values=None,
+    commit=True,
     enable_exception=False
 ):
     cursor = None
@@ -67,7 +72,7 @@ def invoke_pg_query(
             # next TRUNCATE anywhere - a second run of the notebook, the sibling demo - waits for
             # it forever. An ADO.NET command without an explicit transaction commits itself, so
             # the sibling never has to think about this.
-            if not connection.autocommit:
+            if commit and not connection.autocommit:
                 connection.commit()
 
             if as_type == "list":
@@ -92,7 +97,7 @@ def invoke_pg_query(
 
         else:
             # Non-query SQL (DDL/DML) executed successfully
-            if not connection.autocommit:
+            if commit and not connection.autocommit:
                 connection.commit()
             print(f"[VERBOSE] Non-query executed, rowcount={cursor.rowcount}")
             return None
@@ -102,7 +107,10 @@ def invoke_pg_query(
         # the connection is unusable for everything that follows: every later query answers
         # "current transaction is aborted, commands ignored until end of transaction block".
         # import_pg_table and write_pg_table already roll back on failure; this one did not.
-        if not connection.autocommit:
+        # With commit=False the transaction is not ours to end, so the caller has to roll back -
+        # and on PostgreSQL it really has to, because everything else on that connection fails
+        # until it does.
+        if commit and not connection.autocommit:
             connection.rollback()
 
         message = f"Query failed: {str(e)}"

@@ -294,6 +294,16 @@ failed load does not leave the table empty, and autocommit would give that up.
 **Still true:** a data reader keeps its transaction open until it is closed, because it has to. Whoever
 opens a source connection for streaming should close it.
 
+**And it came back, in the PhotoService scenario.** `write_sql_table` closes the cursor it was handed —
+that is the documented ownership — but closing a cursor is not ending a transaction, so every transfer
+leaves the *source* connection `INTRANS`. Three cells of `demo/04_photoservice.ipynb` streamed happily
+that way before the fourth failed with
+`can't change 'isolation_level' now: connection in transaction status INTRANS`: PostgreSQL will not
+change the isolation level while a transaction is running. The notebook now ends the source transaction
+explicitly, and says so in the narration, because the failure is a good illustration of the entry above.
+Nothing in `lib/` changed for it — `write_*_table` must not commit a connection it does not own, which
+is the whole point of `commit=False`.
+
 **Why it matters:** the failure is a hang, not an error, and it happens in exactly the situation this
 repository is built for — a notebook left open after stepping through it.
 
@@ -327,6 +337,48 @@ three PostgreSQL functions were right.
 **Why it matters:** in a notebook this is worse than a plain error. One mistyped query, and every cell
 after it fails with a message that does not mention the mistake — on a projector, in front of an
 audience, with the real cause already scrolled off the screen.
+
+### A transaction has no object to pass around
+
+Found while porting the PhotoService scenario, which is the first demo that needs two writes to
+succeed or fail together.
+
+**The sibling:** `$connection.BeginTransaction()` returns a transaction object, and every command it is
+handed to belongs to that transaction. Nine functions take `-Transaction` for exactly that reason:
+`Invoke-SqlQuery`, `Invoke-OraQuery`, `Invoke-PgQuery`, `Write-SqlTable`, `Write-OraTable`,
+`Write-PgTable`, and the three `Get-*DataReader` functions.
+
+**Python:** DB-API has no transaction object. The transaction belongs to the **connection** — it is
+opened by the first statement and it ends when the connection is committed or rolled back. There is
+nothing to hand to a function, so `-Transaction` cannot be ported as a parameter at all.
+
+**Evidence:** worse than missing, the parameter was impossible. Every function in `lib/` committed
+unconditionally: `write_sql_table` after each batch, `invoke_sql_query` even after a `SELECT` (see *A
+read opens a transaction nobody asked for*, which is why those commits are there). Two calls could
+therefore never make up one unit of work — the first one ended the transaction the second was supposed
+to join. `lib/README.md` had recorded `-Transaction` as "still missing, waits for the scenario that
+needs it"; the scenario arrived and the parameter turned out to be the wrong shape.
+
+**Decision:** the six `invoke_*_query` and `write_*_table` functions take `commit=True`. With
+`commit=False` a function neither commits nor rolls back, so several calls make up one unit of work and
+the caller ends it. The notebook then shows the idiom each driver actually has: psycopg's
+`with connection.transaction():` on the PostgreSQL side, a plain `connection.commit()` on the pyodbc
+side.
+
+The three `get_*_data_reader` functions get **nothing**, and that is not an omission. A Python cursor is
+created on a connection and is already inside whatever transaction that connection has open, so the
+sibling's `-Transaction` has nothing left to do.
+
+**Rejected:** a `transaction=` parameter that takes a psycopg `Transaction` or a marker object, to keep
+the sibling's name. It would have invented an object Python does not have, and hidden the one thing
+worth showing — that the transaction is a property of the connection, not of the statement.
+
+**Also rejected:** leaving the transaction sections out of the demo, which would have been the smallest
+change to `lib/` and would have dropped a key takeaway the sibling names explicitly.
+
+**Why it matters:** it is the clearest example in the whole port of a parameter that cannot be
+translated, only replaced. Side by side, `-Transaction $transaction` and `commit=False` do the same job
+and say something different about where a transaction lives.
 
 ### Named parameters
 
@@ -540,6 +592,133 @@ coin flip and a demo cell should not be one.
 and comes back out. On Oracle it goes in reliably and does not always come back. That asymmetry is a
 property of Oracle Spatial, not of the port — but it is the port that found out how big it is.
 
+## PhotoService
+
+### The application that generates the data
+
+**The sibling:** `docker/photoservice-app.ps1` runs in a PowerShell container and is the shop itself —
+it invents a customer a minute and an order a second, pays and ships them, and writes into PostgreSQL,
+MongoDB and MinIO. It dot-sources `./lib/*-Pg*.ps1`, `*-Mdb*.ps1` and `*-Mio*.ps1` out of the
+repository, mounted into the container, and mounts the PowerShell modules from the WSL2 host.
+
+**Python:** the file came over verbatim with `docker/` and could never have run here — this repository
+has no PowerShell `lib/` to dot-source. The `photoservice` service was commented out in
+`docker-compose.yaml` until somebody decided what to do about it.
+
+**Decision: ported to `docker/photoservice-app.py`.** It is not decoration. Without it, `customer`,
+`order_header` and `order_detail` are empty, and the entire second half of the demo — transferring only
+what is new while the source keeps writing — has nothing to transfer. It runs on a stock
+`python:3.13-slim` image, mounts the same `lib/` the notebook imports, and installs its three drivers
+when the container starts, which keeps the repository free of a Dockerfile.
+
+Five things changed on the way over, and each one is the same kind of difference the rest of this file
+records:
+
+- **The logging archive is gone.** The sibling collects logging events and writes them to MinIO as
+  JSON, where the notebook picks them up again. MinIO is not ported, so the events are printed with
+  their component names instead and `docker compose logs -f photoservice` is where you watch the shop
+  run. See the MinIO section for what that costs the demo.
+- **`Remove-MdbCollection` was not needed.** The sibling calls it to clear the `Orders` collection at
+  startup. pymongo drops a collection in one line, so that is the line — rather than a
+  `remove_mdb_collection` in `lib/` with one caller.
+- **`$PSDefaultParameterValues` has no counterpart.** The sibling turns `-EnableException` on for every
+  `-Pg` and `-Mdb` call at once. Every call in the Python app passes `enable_exception=True` itself,
+  which is the same point `lib/README.md` already makes about that switch.
+- **`commit=False` where the sibling uses `-Transaction`.** The order header and its details are one
+  unit of work in both versions; see *A transaction has no object to pass around*.
+- **The prices had to be converted.** See below.
+
+**Rejected:** leaving it as PowerShell and copying the sibling's `lib/*-Pg*.ps1` and `*-Mdb*.ps1` into
+this repository, which would have been quickest to get running and would have put PowerShell back into
+a repository that deliberately has none. **Also rejected:** dropping the application and seeding a fixed
+set of customers and orders in `05_sample_data_setup.py`, which is cheaper still but turns "transfer
+what changed while you were reading" into a story the audience has to take on trust.
+
+### Binary data needed no code at all
+
+The one data shape the port had not touched, and the expectation was that it would be the expensive
+one. It was not.
+
+**The sibling:** `Get-Content -AsByteStream -Raw` produces a `[byte[]]`, and Npgsql binds it to a
+`bytea`.
+
+**Python:** `Path.read_bytes()` produces `bytes`, and psycopg binds it to a `bytea`. Reading it back
+gives `bytes` again — not a `memoryview`, which was the thing worth checking, because a `memoryview`
+would have needed converting before it could be compared or written to a file.
+
+**Measured against the running containers**, driving the real `lib/` functions:
+
+- All 24 photos into the `bytea` column through `invoke_pg_query` with a parameter value: **2.9 s**,
+  largest file 4,045,546 bytes. Every one of them **byte for byte identical** to the file on disk.
+- Streamed from PostgreSQL into SQL Server `VARBINARY(MAX)` with `get_pg_data_reader` and
+  `write_sql_table`: **2.3 s**, and every column of every row matched the source — not just the row
+  count, and not just the length of the image.
+- `uuid.UUID` reaches a `UNIQUEIDENTIFIER` through pyodbc unchanged, and a `TIMESTAMP(3)` reaches a
+  `DATETIME2` unchanged. Both were checked because the order tables carry them.
+
+**Decision:** nothing was added to `lib/`. No converter, no `setinputsizes`, no branch — which is worth
+saying out loud, because the Oracle `TIMESTAMP` and `CLOB` entries above are exactly the cases where a
+type *did* need declaring, and the contrast is the lesson. The only thing the notebook changes is
+`batch_size`, down from 1000 to 5: `fast_executemany` sizes its bind buffer from the longest value in
+the batch, so a thousand four-megabyte rows would multiply out into gigabytes of buffer for twenty-four
+rows' worth of data.
+
+**A check that failed for the wrong reason, which is worth recording next to the one that passed for the
+wrong reason:** the first run reported the milliseconds as lost — source `…14.006533`, target
+`…14.007000`. The comparison was against the original Python `datetime`, truncated to milliseconds. But
+PostgreSQL **rounds** a `TIMESTAMP(3)`, it does not truncate: `.001500` becomes `.002`, `.001499`
+becomes `.001`, and `.999999` becomes the next second. Comparing the two *databases* instead of the
+database against Python showed the value arriving unchanged. The Oracle entry above is a real defect
+found by comparing values; this is the same technique producing a false alarm by comparing against the
+wrong reference.
+
+### The first `_` helper that is used outside its own file
+
+**The sibling:** `Get-SqlDataReader`, `Get-OraDataReader` and `Get-PgDataReader` all take
+`-ParameterValues`, and each one builds its parameters with the same few lines the `Invoke-*Query`
+functions use.
+
+**Python:** the three reader functions were written without it, and `lib/README.md` recorded the reason:
+supporting it would mean copying the whole named-parameter rewrite into three more files, and no demo
+passed parameters to a reader. **The PhotoService scenario passes them in six cells** — "everything after
+the id the target already has" is the entire incremental-transfer technique, and the id is a parameter —
+so the reason expired.
+
+**Decision:** each reader imports `_prepare_query_and_params` from its own `invoke_*_query` module.
+`lib/` already carries three copies of that regex, one per provider; three more would have made six.
+
+This bends the rule in `AGENTS.md` that a `_` helper lives in the same file as its caller, and it is the
+only place that happens. It is defensible on the terms the rule exists for: the modules are flat files on
+`sys.path`, so the import is one readable line, and on a slide
+`from invoke_pg_query import _prepare_query_and_params` says something true and useful — the reader and
+the query function understand `:name` the same way because it is literally the same code.
+
+**Rejected:** copying the helper three times, which is what the original note assumed would be necessary;
+and promoting it to a `lib/_parameters.py` shared module, which would have been the tidy answer in a
+package and is exactly the kind of indirection this repository does not want.
+
+**Caught by:** stepping through the notebook. `get_pg_data_reader() got an unexpected keyword argument
+'parameter_values'` — static checks were green, because a wrong keyword argument is only an error when
+the call runs.
+
+### A NUMERIC does not fit in a BSON document
+
+**The sibling:** Npgsql hands back a `[decimal]`, and Mdbc converts it while building the document.
+Nothing in `photoservice-app.ps1` mentions types.
+
+**Python:** psycopg maps `NUMERIC` to `decimal.Decimal`, and **BSON cannot encode one**. pymongo raises
+`InvalidDocument` rather than guessing, because the lossless BSON type is `Decimal128` and the lossy one
+is a double, and it will not choose for you.
+
+**Decision:** the application converts a photo price to `float` when it builds the order document, and
+leaves it a `Decimal` everywhere it goes into a `NUMERIC` column. A shop price with two decimal places
+is exactly what a double represents badly in theory and perfectly well in practice at this scale, and
+`Decimal128` would have put a BSON type into a document the notebook then has to read back.
+
+**Why it matters:** it is the same lesson as the timestamps that lost their milliseconds, in a friendlier
+form — the driver that refuses to guess costs you one line, and the driver that guesses costs you a
+day of looking for the missing digits.
+
 ## MongoDB
 
 ### A connection that is not a connection
@@ -645,10 +824,16 @@ not enough to keep a deprecated dependency for.
 - The `minio` service is still in `docker/docker-compose.yaml`, together with `minio-init.sh` and the
   two policy files, and `06_test_connections.py` still prints the console URL. All of it is inherited
   from the sibling, none of it is used by a ported demo, and removing it is a separate decision that
-  has not been made — the `photoservice` service is commented out in the same file for a comparable
-  reason.
+  has not been made.
 - `05_sample_data_setup.py` downloads the StackExchange files and stops there. The upload block of the
   sibling has no counterpart and will not get one.
+- **Two sections of the PhotoService demo go with it**, and that consequence was only noticed when
+  that scenario was ported. The sibling's *Transfer data from logging (or kafka)* replays the
+  application's logging events out of MinIO into SQL Server, and its *Bonus: Import Logging from files
+  on MinIO* loads the same archives into a `logging` table. Both read the bucket, so both are gone —
+  and with them the one part of the demo that showed event data as an alternative to comparing two
+  tables. The application still produces those events; `docker/photoservice-app.py` prints them
+  instead of archiving them.
 
 ## Excel
 

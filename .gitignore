@@ -5,6 +5,10 @@ __pycache__/
 .venv/
 .ruff_cache/
 
+# demo/04_photoservice.ipynb writes a photo back out of the database to prove it survived,
+# and deletes it again in the next cell. If that cell is not reached, this keeps it out.
+demo/test.jpg
+
 data/timesheets/*.xlsx
 data/stackexchange/*.xml
 data/geodata/*.gpx
