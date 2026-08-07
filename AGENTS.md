@@ -36,18 +36,28 @@ ProjectStatus port" below.
 **With that, every scenario of the sibling repository is ported.** What is left is a short list of
 bonus sections that were each left out for a stated reason — see "What is left to port".
 
+**And one thing here is no longer a port at all.** `demo/06_eventstreaming.ipynb`, the `kfk` column of
+`lib/` and the Redpanda container have no counterpart in the sibling. They exist because dropping MinIO
+had also dropped the event streaming story, which was collateral damage from a decision about object
+storage. The events keep the sibling's `Add-LoggingEvent` shape and the replay loop is still a
+translation of its loop, so the *section* is recovered rather than invented — but the two repositories
+can no longer be shown side by side for it, because one side is empty. Recorded in `DIFFERENCES.md`
+under Kafka. Stepped through end to end, outputs committed.
+
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
 | `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
 | `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
 | `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end, outputs committed. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
-| `lib/` | Eighteen functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, plus `connect`, `write` and `read` for `mdb`. The `mio` column is empty by decision, not as a to-do. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
+| `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. Stepped through end to end, outputs committed. Not a port — see above. **The counts are not reproducible** — the shop keeps producing, so the topic is bigger on every run. **Needs the application to have been running for twenty minutes**, and the notebook says so at the top: the app truncates its tables at startup and keeps the sibling's schedule, so before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. |
+| `lib/` | Twenty-two functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, `connect`, `write` and `read` for `mdb`, and two `connect`s plus `write` and `read` for `kfk`. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
 | `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
 | The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
-| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]` and `pymongo` when the container starts. It is the source of everything the second half of scenario 4 transfers, so **that half of the notebook is empty unless this container is running.** |
+| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. |
+| `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
 | `05_sample_data_setup.py` | Timesheets, the StackExchange download, the Geodata downloads and the ProjectStatus Excel. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
 | `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
 
@@ -164,13 +174,20 @@ not running, those cells have nothing to find.** It also needs a few minutes of 
 notebook is interesting: the first order is scheduled ten minutes after it starts, the first payment at
 fifteen, the first shipment at twenty — the sibling's schedule, kept.
 
+That schedule governs demo 6 as well, and more strictly, because that one reads the events rather than
+the tables. Both demos want the container to have been up for twenty minutes; restarting it resets the
+clock **and** truncates the tables.
+
 **Left out on purpose, and both follow from decisions already made:**
 
-- The sibling's **"Transfer data from logging (or kafka)"** section and its **MinIO logging bonus**.
-  Both read the application's logging archives out of MinIO, which is not ported. The application still
-  produces those events — it prints them instead of archiving them — but the demo section that replayed
-  them is gone. That is the largest thing the MinIO decision has cost, and it is recorded there.
+- The sibling's **MinIO logging bonus**, which loads the application's log archives into a `logging`
+  table. It reads the bucket, so it went with the MinIO decision, and it is not coming back — it is a
+  file-import demo and demo 2 already is one.
 - The **MongoDB → Azure SQL JSON bonus**, which needs Azure.
+
+The sibling's **"Transfer data from logging (or kafka)"** section is *not* in this list any more. It
+went with MinIO too, and then came back as `demo/06_eventstreaming.ipynb` with Kafka underneath it
+instead of a bucket.
 
 **The `04_photoservice_transfer_01.ps1` loop of the sibling has no counterpart** and did not need one:
 it is the same transfer as the notebook, wrapped in a `while` loop to run unattended.
@@ -198,10 +215,11 @@ The scenario was built in small steps, deliberately not in the order of the sibl
 each step settled one design question: the sample data, reading the XML, the SQL Server import, the
 PostgreSQL import, streaming table to table, Oracle, and MongoDB. All of it is done.
 
-**MinIO is not a remaining step — it is out of scope.** It was dropped because MinIO changed its
-licence, and because uploading and downloading files is not the question this repository asks. The full
-decision, including what it costs, is in `DIFFERENCES.md`. Do not treat the empty `mio` column of the
-grid in `lib/README.md` as a gap, and do not offer to fill it.
+**MinIO is not a remaining step — it is gone.** It was dropped because MinIO changed its licence, and
+because uploading and downloading files is not the question this repository asks. The full decision,
+including what it costs, is in `DIFFERENCES.md`. The container, its init script and its policy files
+have been deleted, the `mio` column has been removed from the grid in `lib/README.md`, and the
+user-facing documentation no longer mentions it. Do not offer to bring any of it back.
 
 The one part of the sibling's `demo/02_stackexchange.ps1` with no counterpart here is its **Azure SQL
 Database bonus**, which streams a file and a table into an Azure SQL Database. That needs Azure
@@ -223,9 +241,9 @@ Do not wait to be asked for steps 1 to 3. The owner has had to prompt for it onc
 ("You have not changed the 03_python_setup.sh - so I wait for that to change?") and it should not
 happen again.
 
-**Currently known gap:** `pymongo` is in `03_python_setup.sh` but was added after the last WSL2 setup
-run. Unless `03_python_setup.sh` has been re-run since, `06_test_connections.py` will fail on its
-MongoDB block inside WSL2. The Windows install was done, so the notebooks are fine.
+**Currently known gap:** `confluent-kafka` was added to `03_python_setup.sh` for the Kafka demo.
+Unless that script has been re-run since, `06_test_connections.py` will fail on its Kafka block inside
+WSL2. (`pymongo` had the same gap and was closed by the clean WSL2 install.) The Windows install was done, so the notebooks are fine.
 
 ## The sample data on disk
 
@@ -330,9 +348,10 @@ next to each other:
 | `lib/Connect-SqlInstance.ps1` → `Connect-SqlInstance` | `lib/connect_sql_instance.py` → `connect_sql_instance` |
 | `lib/Write-PgTable.ps1` → `Write-PgTable` | `lib/write_pg_table.py` → `write_pg_table` |
 
-The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL) and `mdb` (MongoDB). The
-sibling also has `mio` (MinIO); nothing here uses it and nothing will. Helper functions that are not
-part of the public surface are prefixed with `_` and live in the same file as their caller.
+The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL), `mdb` (MongoDB) and `kfk`
+(Kafka). The sibling also has `mio` (MinIO), which is not ported and is being removed there too.
+Helper functions that are not part of the public surface are prefixed with `_` and live in the same
+file as their caller.
 
 **There is exactly one exception, and it is deliberate:** each `get_*_data_reader` imports
 `_prepare_query_and_params` from its own `invoke_*_query`, rather than carrying a fourth, fifth and
@@ -417,7 +436,7 @@ which is what VS Code and Jupyter do. Modules that live next to the notebook (`i
 are imported directly, without the `sys.path` dance.
 
 Runtime dependencies, all installed with plain `pip` into the system interpreter today:
-`pyodbc`, `psycopg[binary]`, `oracledb`, `pymongo`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally
+`pyodbc`, `psycopg[binary]`, `oracledb`, `pymongo`, `confluent-kafka`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally
 needs the [Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name
 is hard-coded in `connect_sql_instance.py`. Oracle and PostgreSQL need nothing of the kind:
 `oracledb` runs in thin mode and speaks the Oracle protocol itself, so there is no Instant Client. There is no `requirements.txt` and no virtual environment

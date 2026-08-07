@@ -1,15 +1,20 @@
 # SIBLING-FINDINGS.md
 
-Things found in [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around)
-while porting it to Python. They were found here, they have to be fixed there.
+Work for [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around),
+written down on this side. There are two kinds of entry:
 
-Nothing in this file is a Python problem. For the design decisions of the port, see `DIFFERENCES.md`.
+- **Findings (1–8)** — things found while porting to Python. They were found here, they have to be
+  fixed there. Nothing in them is a Python problem.
+- **Things to build there (9–10)** — where this repository has gone first and the PowerShell one is
+  meant to follow. These are not defects; they are a plan.
+
+For the design decisions of the port itself, see `DIFFERENCES.md`.
 
 **This file lives in the Python repository**, so a session opened in the PowerShell repository will not
 see it on its own. Point that session at this file, or copy it across.
 
-Each entry says where the problem is, how to see it, and what to do. The **Here** line says whether the
-Python repository — which inherited `docker/` verbatim — is already fixed, so the two do not drift
+Each finding says where the problem is, how to see it, and what to do. The **Here** line says whether
+the Python repository — which inherited `docker/` verbatim — is already fixed, so the two do not drift
 without anyone noticing.
 
 ---
@@ -227,3 +232,94 @@ SELECT COUNT(*) FROM order_event WHERE order_id IS NULL;
 
 **Here:** `docker/photoservice-app.py` guards both blocks with `if order_id is not None:`, with a
 comment naming this finding.
+
+---
+
+# Things to build there
+
+Not defects. This is where the Python repository went first and the PowerShell one is meant to follow,
+so that the two can be shown side by side again.
+
+## 9. Remove MinIO
+
+**Where:** `lib/*-Mio*.ps1`, `docker/`, `05_sample_data_setup.ps1`, `demo/02_stackexchange.ps1`,
+`demo/04_photoservice.ps1`, `docker/photoservice-app.ps1`
+
+**What:** MinIO comes out of the sibling too, for the reasons already recorded in `DIFFERENCES.md`
+here — it changed its licence, and uploading and downloading files is a different question from the one
+every other provider in these repositories answers.
+
+**What that touches:**
+
+- The five functions: `Connect-MioInstance`, `Get-MioFile`, `Get-MioFileList`, `Set-MioFile`,
+  `Remove-MioFile`.
+- The `minio` service in `docker/docker-compose.yaml`, plus `minio-init.sh` and the two policy files.
+- The upload block in `05_sample_data_setup.ps1`.
+- The bucket sections at the end of `demo/02_stackexchange.ps1`.
+- In `demo/04_photoservice.ps1`: *"Transfer data from logging (or kafka)"* and the
+  *"Bonus: Import Logging from files on MinIO"* section. The first of those does **not** simply
+  disappear — see entry 10, which is where it goes.
+- `photoservice-app.ps1` writes its logging archive to the bucket. That has to become the Kafka
+  producer of entry 10, or the application stops emitting events at all.
+
+**Worth thinking about before deleting:** the hand-rolled AWS SigV4 signing in `Connect-MioInstance` is
+the most interesting code in either repository, precisely because no SDK hides it. Deleting it removes
+something genuinely good. Keeping it somewhere outside the demo — a gist, a blog post, an appendix — is
+worth five minutes of thought before `git rm`.
+
+**Here:** done, completely. No demo uses it, the user-facing documentation does not mention it, and the
+`minio` service, `minio-init.sh`, both policy files and the `.env` block have been deleted. Only the
+internal markdowns still discuss it, as the record of why. Use this side as the worked example of what
+to remove.
+
+## 10. Port the event streaming demo back
+
+**Where:** new — the counterpart of `demo/06_eventstreaming.ipynb` and the `kfk` functions here
+
+**What:** this repository now has a Kafka demo, served by Redpanda, and it is the only thing here with
+no PowerShell counterpart. It exists because dropping MinIO also dropped the event streaming story,
+which was collateral damage from a decision about object storage — and the sibling's own section title,
+*"Transfer data from logging (or kafka)"*, says what the real answer always was.
+
+**The good news, and it decides the approach:** the .NET client `Confluent.Kafka` wraps **librdkafka**,
+which is the same C library the Python `confluent-kafka` package wraps. The two demos would therefore
+be near-identical in shape rather than merely analogous — which is the whole point of these two
+repositories.
+
+Better still, the sibling already has the mechanism for this. `Import-PgLibrary` and `Import-OraLibrary`
+download ADO.NET DLLs from nuget.org at runtime; **`Import-KfkLibrary` would follow that pattern
+exactly**, with no new idea required.
+
+**What to build, following the naming convention there:**
+
+| Here | There |
+| --- | --- |
+| `connect_kfk_producer` | `Connect-KfkProducer` |
+| `connect_kfk_consumer` | `Connect-KfkConsumer` |
+| `write_kfk_topic` | `Write-KfkTopic` |
+| `read_kfk_topic` | `Read-KfkTopic` |
+
+Two connect functions rather than one, because Kafka has no single connection object — a producer and a
+consumer are different clients. That is worth keeping on both sides.
+
+Plus: the `redpanda` and `redpanda-console` services in `docker/docker-compose.yaml` (copy them from
+here), the producer calls in `photoservice-app.ps1`, and a `demo/06_eventstreaming.ps1`.
+
+**Four things learned the hard way here, all of which transfer:**
+
+1. **Advertise two listeners.** The application container reaches the broker as `redpanda:9092` on the
+   compose network; the demo reaches it from Windows as `127.0.0.1:19092`. A broker advertises the
+   address a client should come back on, so it has to advertise both. Getting this wrong is the classic
+   Kafka-in-Docker trap.
+2. **Reading a live topic without a bound never returns.** A stopping rule of "n seconds with no new
+   message" never fires while the shop is producing. Ask the broker for the high watermark and read
+   exactly that many. This hung a kernel here, and interrupting a process that is inside librdkafka is
+   unreliable — it had to be killed.
+3. **`auto.offset.reset` only applies to a consumer group that has no committed offset.** There is no
+   "start again" setting; starting again means a new group id. In a demo that gets re-run constantly
+   this shows up as "the cell returned nothing the second time" rather than as an error.
+4. **The application truncates its tables at startup and staggers its work over twenty minutes.** A
+   demo run inside that window shows an empty topic and zero counts, and looks broken when it is not.
+
+**Here:** written, and **not yet working** — the notebook exists but has not been stepped through
+successfully. Do not port it back until it has been.

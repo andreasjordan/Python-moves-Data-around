@@ -3,20 +3,23 @@
 #
 # This is the port of photoservice-app.ps1 from the sibling repository. Two differences:
 #
-# * The sibling archives its logging events as JSON files on MinIO, and the notebook reads them
-#   back. MinIO is not ported (see DIFFERENCES.md), so the events are printed instead - with the
-#   same component names the sibling gives them - and "docker compose logs -f photoservice" is
-#   where you watch the shop run.
+# * Its logging events go to a Kafka topic, where demo/06_eventstreaming.ipynb reads them. They keep
+#   the shape and the component names that the sibling's Add-LoggingEvent gives them, so the replay
+#   on the other side is still a port of its loop. Every event is printed as well, so that
+#   "docker compose logs -f photoservice" shows the shop running whether or not anybody is
+#   consuming. The PowerShell version still writes its events to files; changing that is entry 10
+#   of SIBLING-FINDINGS.md.
 # * The sibling sets $PSDefaultParameterValues to turn EnableException on for every -Pg and -Mdb
 #   call at once. Python has no such thing, so every call passes enable_exception=True itself.
 
 import json
 import random
+import socket
 import sys
 import time
 import uuid
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -26,17 +29,46 @@ import pandas as pd
 # does, and the functions are the very ones the notebook calls.
 sys.path.append("/PhotoService/lib")
 
+from connect_kfk_producer import connect_kfk_producer  # noqa: E402
 from connect_mdb_instance import connect_mdb_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
 from invoke_pg_query import invoke_pg_query  # noqa: E402
+from write_kfk_topic import write_kfk_topic  # noqa: E402
 from write_mdb_collection import write_mdb_collection  # noqa: E402
 from write_pg_table import write_pg_table  # noqa: E402
 
+TOPIC = "photoservice.events"
 
-# The port of Add-LoggingEvent. In the sibling the events are collected and shipped to MinIO;
-# here they are the console trace, so the component name stays and the rest goes.
-def log(message, component="Main"):
+
+# The port of Add-LoggingEvent, and it keeps that function's shape: an event has a timestamp, a
+# host, an application, a component, a level, a message and - when something actually happened -
+# the details of what happened.
+#
+# An event with details goes to the topic as well as to the console. The ones without are
+# scheduling chatter, and the sibling only writes those to its archive because its archive is a
+# log file. A topic somebody is going to replay is better off without them.
+def log(message, component="Main", details=None):
     print(f"[{component}] {message}")
+
+    if details is None:
+        return
+
+    event = {
+        "Timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        "Hostname": socket.gethostname(),
+        "Appname": "PhotoService",
+        "Component": component,
+        "Level": "INFO",
+        "Message": message,
+        "Details": details
+    }
+
+    write_kfk_topic(
+        connection=kfk_producer,
+        topic=TOPIC,
+        data=[event],
+        enable_exception=True
+    )
 
 
 print("Reading sample data from files")
@@ -53,7 +85,10 @@ db_config = {
     "mdb_instance": "mongo",
     "mdb_user": "photoservice",
     "mdb_password": "Passw0rd!",
-    "mdb_database": "photoservice"
+    "mdb_database": "photoservice",
+    # On the compose network, not 127.0.0.1:19092 - that is the address the notebook uses from
+    # Windows. The broker advertises both, see docker-compose.yaml.
+    "kfk_instance": "redpanda:9092"
 }
 
 # The application starts together with the databases, so the first attempts are expected to fail
@@ -77,6 +112,12 @@ while True:
             enable_exception=True
         )
 
+        print("Connecting to Redpanda")
+        db_config["kfk_producer"] = connect_kfk_producer(
+            instance=db_config["kfk_instance"],
+            enable_exception=True
+        )
+
         break
 
     except Exception as e:
@@ -85,6 +126,7 @@ while True:
 
 pg_connection = db_config["pg_connection"]
 mdb_connection = db_config["mdb_connection"]
+kfk_producer = db_config["kfk_producer"]
 
 print("Removing data from previous run")
 for table in ["order_event", "order_detail", "order_header", "customer"]:
@@ -154,7 +196,7 @@ while True:
             data=pd.DataFrame([customer]),
             enable_exception=True
         )
-        log(f"Added customer {customer['id']}", component="Customer")
+        log("Added customer", component="Customer", details=customer)
 
         new_customer["next_id"] += 1
         new_customer["next_run"] = datetime.now() + timedelta(seconds=new_customer["delay_sec"])
@@ -209,7 +251,12 @@ while True:
             enable_exception=True
         )
         pg_connection.commit()
-        log(f"Added order header {order_header['id']} with {len(order_details)} details", component="Order")
+
+        # Announced after the commit, not before it. An event that says a thing happened, sent
+        # while the transaction that did it could still roll back, is the oldest mistake in this
+        # subject - and demo 6 is about believing these events.
+        log("Added order header", component="Order", details=order_header)
+        log("Added order details", component="Order", details=order_details)
 
         # The same order as one document, the way a document database would hold it: the customer
         # and every photo denormalised into the order instead of joined to it
@@ -290,7 +337,7 @@ while True:
                 parameter_values=payment,
                 enable_exception=True
             )
-            log(f"Added payment for order {order_id}", component="Payment")
+            log("Added payment", component="Payment", details=payment)
 
         new_payment["next_run"] = datetime.now() + timedelta(seconds=new_payment["delay_sec"])
         log(f"Scheduled next payment for {new_payment['next_run']}", component="Payment")
@@ -323,7 +370,7 @@ while True:
                 parameter_values=shipment,
                 enable_exception=True
             )
-            log(f"Added shipment for order {order_id}", component="Shipment")
+            log("Added shipment", component="Shipment", details=shipment)
 
         new_shipment["next_run"] = datetime.now() + timedelta(seconds=new_shipment["delay_sec"])
         log(f"Scheduled next shipment for {new_shipment['next_run']}", component="Shipment")

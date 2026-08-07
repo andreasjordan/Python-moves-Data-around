@@ -17,11 +17,13 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has eighteen. The rest of this file is as much a to-do list as an index.
+`lib/` has 35 functions. This one has twenty-two — eighteen ported, plus four for Kafka, which the
+sibling does not have at all. The rest of this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
-**pg** = PostgreSQL · **mdb** = MongoDB. The sibling also has **mio** = MinIO, which is not ported.
+**pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka. The sibling has no **kfk**, which is the one
+place this repository goes further rather than narrower.
 
 Every function takes `enable_exception=False`. With it, a failure raises; without it, the function
 prints `[ERROR] …` and returns `None`. Callers turn it on per call — there is no equivalent of
@@ -305,32 +307,84 @@ shadows the builtin, which is deliberate — the naming rule says parameters kee
 `-Last` is missing. pymongo has no equivalent, it would mean reversing the sort and limiting, and no
 demo uses it.
 
+### `connect_kfk_producer(instance, enable_exception=False)` and `connect_kfk_consumer(instance, group_id, from_beginning=False, enable_exception=False)`
+
+**Two connect functions, and that is the interesting thing about this provider.** Every other one
+here has a single connection that reads and writes. Kafka does not: a `Producer` and a `Consumer` are
+different clients with different configuration and nothing in common behind them. Returning one object
+that is secretly either would have invented a connection Kafka does not have.
+
+Both check the broker before returning, with `list_topics(timeout=10)`. Neither client contacts a
+broker until its first real operation — the same trap `connect_mdb_instance` has, and the same answer.
+
+`group_id` is what Kafka remembers a reader by: two consumers in one group share the work and one set
+of offsets, and a consumer in a brand new group has never read anything. `from_beginning` sets
+`auto.offset.reset`, **and that setting only applies to a group with no committed offset**. Passing it
+to a group that has read before does nothing at all. There is no parameter that means "start again" —
+that is what a new `group_id` is for, and `demo/06_eventstreaming.ipynb` says so out loud because it
+is the thing everybody gets wrong first.
+
+There is no `pooled_connection`: librdkafka maintains its own connections to the brokers whether you
+ask or not, the same argument `connect_mdb_instance` makes.
+
+### `write_kfk_topic(connection, topic, data=None, key=None, batch_size=1000, enable_exception=False)`
+
+Produces a list of dicts as JSON, one message each, and **flushes before returning** — `produce()`
+only queues, so without the flush a script that exits promptly loses messages that never left.
+
+Like `write_mdb_collection` there is no target schema to match against, and one step further: a topic
+has no document model either, so the caller decides the encoding. `json.dumps(..., default=str)` is
+that decision. It is doing real work — the events carry `datetime` and `UUID` values and `json.dumps`
+refuses both, which is the same question the MongoDB path answered with `float()` for a `Decimal`.
+
+`key` names a field of each document to use as the message key. Kafka guarantees order per partition,
+and a key is what pins related messages to the same one.
+
+### `read_kfk_topic(connection, topic, first=None, timeout=5.0, as_type="DataFrame", enable_exception=False)`
+
+Subscribes and reads, as a `DataFrame` (default) or `dict`. There is no `list` and no `single_value`,
+for the reason `read_mdb_collection` gives: a message is already a dict.
+
+**It needs a stopping rule, and no other read function in `lib/` does.** A query ends; a topic does
+not. So it stops after `first` messages, or after `timeout` seconds with nothing new. That is not an
+awkwardness of the port — it is what reading a log is, and the notebook makes the point rather than
+hiding it.
+
+**Calling it without `first` on a topic somebody is still writing to does not return.** The timeout
+only fires after a gap with no messages at all, and a producer sending a few events a second never
+leaves one. This is not theoretical — it hung a kernel during development, and interrupting a kernel
+that is inside librdkafka is unreliable, so it had to be killed. When the topic is live, bound the
+read: `first=n`, or ask the broker where the end is with
+`get_watermark_offsets(TopicPartition(topic, 0))` and read exactly that many, which is what
+`demo/06_eventstreaming.ipynb` does for its replay.
+
+Offsets are committed automatically as it reads, which is why calling it twice returns different
+messages rather than the same ones.
+
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
 a different name for them. **✔** marks what exists, a bare name is a cell that could still be filled,
-**—** is a cell that makes no sense for that provider, and **✖** is a cell that will stay empty because
-somebody decided so:
+and **—** is a cell that makes no sense for that provider:
 
-| Family | SQL Server | Oracle | PostgreSQL | MongoDB | MinIO |
+| Family | SQL Server | Oracle | PostgreSQL | MongoDB | Kafka |
 | --- | --- | --- | --- | --- | --- |
-| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | ✖ |
+| Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | ✔ `connect_kfk_producer` + `connect_kfk_consumer` |
 | Query, all at once | ✔ `invoke_sql_query` | ✔ `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
-| Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | ✔ `read_mdb_collection` | — |
+| Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | ✔ `read_mdb_collection` | ✔ `read_kfk_topic` |
 | Cursor for streaming into a writer | ✔ `get_sql_data_reader` | ✔ `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
-| Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | ✔ `write_mdb_collection` | — |
+| Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | ✔ `write_mdb_collection` | ✔ `write_kfk_topic` |
 | File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
-| Object storage | — | — | — | — | ✖ |
 
 The grid is intentionally not square, for the same reasons as in the sibling repository: MongoDB has no
 column metadata to return and already streams.
 
-**The MinIO column is ✖ throughout, and that is a decision rather than a backlog.** The sibling has
-`connect_mio_instance` and four file functions; none of them is coming here. MinIO changed its licence,
-and uploading and downloading files is a different question from the one every other provider in this
-grid answers. The reasoning, and what it costs, is in `DIFFERENCES.md`. Do not fill these cells in.
+**Kafka is the first column with two functions in one cell.** Every other provider has one connection
+that both reads and writes; Kafka has a producer and a consumer, which are separate clients. It is also
+the only column with no counterpart in the sibling repository at all — see `DIFFERENCES.md`, where that
+is recorded as an addition rather than a difference.
 
 Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
 which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
@@ -339,8 +393,8 @@ Oracle that saved more than the download: `oracledb` in thin mode needs no Oracl
 all.
 
 One sibling function has no cell in this grid at all: `Remove-MdbCollection`. Dropping a collection is
-what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — but unlike
-the MinIO column, that omission is a decision nobody has made, rather than one that has been made.
+what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — that
+omission is a decision nobody has made, rather than one that has been made.
 `docker/photoservice-app.py` is the one caller that wants it on its own, at startup, with no documents
 to write; it calls `connection.drop_collection("Orders")` directly, because that is the whole function.
 

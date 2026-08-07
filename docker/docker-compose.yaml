@@ -86,21 +86,41 @@ services:
       - mongo:/data/db
       - ./mongo-init.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
 
-  minio:
-    # To find latest MinIO images, see https://quay.io/repository/minio/minio?tab=tags
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  redpanda:
+    # To find latest Redpanda images, see https://docs.redpanda.com/current/get-started/quick-start/
+    # Redpanda speaks the Kafka protocol, so every client and every word in the demo is Kafka.
+    # It is one container with no JVM, which matters next to the five that are already here.
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.1
     ports:
-      - 9000:9000
-      - 9001:9001
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      - 19092:19092
+      - 19644:9644
     volumes:
-      - minio:/data
-      - ./minio-init.sh:/etc/minio/init/init.sh:ro
-      - ./minio-policy-photoservice.json:/etc/minio/init/policy-photoservice.json:ro
-      - ./minio-policy-stackexchange.json:/etc/minio/init/policy-stackexchange.json:ro
-    entrypoint: /etc/minio/init/init.sh
+      - redpanda:/var/lib/redpanda/data
+    # Two listeners, and this is the part that is easy to get wrong. The photoservice container
+    # reaches the broker over the compose network as redpanda:9092; the notebook reaches it from
+    # Windows as 127.0.0.1:19092. A broker advertises the address a client should come back on,
+    # so it has to advertise both - one per listener.
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://127.0.0.1:19092
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=info
+
+  redpanda-console:
+    # Somewhere to look at the topic while talking about it, the way pgAdmin is there for
+    # PostgreSQL. To find latest images, see https://hub.docker.com/r/redpandadata/console
+    image: docker.redpanda.com/redpandadata/console:v3.9.0
+    ports:
+      - 8080:8080
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      - redpanda
 
   # The PhotoService application: the shop that keeps inventing customers and orders, so that
   # demo/04_photoservice.ipynb has a live system to transfer data away from.
@@ -118,11 +138,11 @@ services:
     # The PowerShell version mounted the modules from the WSL2 host. The Python drivers are not
     # in the stock image, so they are installed when the container starts - which keeps this a
     # plain image with no Dockerfile to build. The app retries until the databases answer.
-    command: sh -c "pip install --quiet --root-user-action=ignore pandas 'psycopg[binary]' pymongo && python /PhotoService/app.py"
+    command: sh -c "pip install --quiet --root-user-action=ignore pandas 'psycopg[binary]' pymongo confluent-kafka && python /PhotoService/app.py"
 
 volumes:
   sqlserver: {}
   oracle: {}
   postgres: {}
   mongo: {}
-  minio: {}
+  redpanda: {}

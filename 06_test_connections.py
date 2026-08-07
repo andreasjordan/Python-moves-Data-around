@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.append(str((Path(__file__).parent / "lib").resolve()))
 
+from connect_kfk_producer import connect_kfk_producer  # noqa: E402
 from connect_mdb_instance import connect_mdb_instance  # noqa: E402
 from connect_ora_instance import connect_ora_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
@@ -188,6 +189,15 @@ photoservice["mdb_connection"] = connect_mdb_instance(
 
 photoservice["mdb_connection"].client.close()
 
+# The broker the application produces its events to, and demo 6 reads them from. This is the
+# address seen from outside the compose network - the application itself uses redpanda:9092.
+photoservice["kfk_producer"] = connect_kfk_producer(
+    instance="127.0.0.1:19092",
+    enable_exception=True
+)
+
+# A Producer has nothing to close. It is flushed, and it has already been checked by connecting.
+
 
 # ProjectStatus
 print("Setting up variables and connections for ProjectStatus")
@@ -211,5 +221,5 @@ projectstatus["sql_connection"].close()
 
 print("Finished")
 
-print("MinIO: http://127.0.0.1:9001/login")
 print("pgAdmin: http://127.0.0.1:5050/browser/")
+print("Redpanda Console: http://127.0.0.1:8080")

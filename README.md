@@ -20,6 +20,7 @@ pip install notebook
 pip install "psycopg[binary]"
 pip install oracledb
 pip install pymongo
+pip install confluent-kafka
 ```
 
 I have installed the "SQL Server ODBC driver" using these links:
@@ -45,8 +46,9 @@ repository is being ported scenario by scenario:
 | Geodata demo | Done, see `demo/03_geodata.ipynb` |
 | PhotoService demo | Done, see `demo/04_photoservice.ipynb` |
 | ProjectStatus demo | Done, see `demo/05_projectstatus.ipynb` |
-| `lib/` | Eighteen functions, for SQL Server, Oracle, PostgreSQL and MongoDB |
-| Containers | Complete — every scenario's databases are created, and the PhotoService application runs as a container of its own. |
+| Event streaming demo | Done, see `demo/06_eventstreaming.ipynb` |
+| `lib/` | Twenty-two functions, for SQL Server, Oracle, PostgreSQL, MongoDB and Kafka |
+| Containers | Complete — every scenario's databases are created, the PhotoService application runs as a container of its own, and Redpanda serves the Kafka demo. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
 Every scenario of the sibling repository is now ported, apart from the bonus sections listed under the
@@ -62,16 +64,12 @@ Working today:
 - Oracle database
 - PostgreSQL
 - MongoDB
+- Apache Kafka, served by Redpanda
 - Microsoft Excel
 - XML files
 
 - GPX files, GeoJSON files
 - JPEG files, as binary data in the database itself
-
-Deliberately not planned: **MinIO**. The sibling repository uploads the sample files to it and reads
-them back, signing the requests by hand. That is not being ported — MinIO changed its licence, and
-uploading and downloading files is a different subject from getting rows into and out of a database,
-which is what this repository is about.
 
 
 
@@ -126,10 +124,9 @@ The Excel files are created by `05_sample_data_setup.py` from `data/timesheets/s
 - Data will be streamed from table to table, in all nine directions between the three systems
 - As a bonus, the same data goes into MongoDB, which has no schema to convert against at all
 
-Compared to the PowerShell version, two things are missing. The upload to and download from MinIO is
-not being ported at all, for the reasons above. And the PowerShell demo has a bonus section that
-streams the same data into an Azure SQL Database, which needs Azure resources rather than a local
-container, so it is not part of this demo as it stands.
+Compared to the PowerShell version, one thing is missing: a bonus section that streams the same data
+into an Azure SQL Database, which needs Azure resources rather than a local container, so it is not
+part of this demo as it stands.
 
 
 
@@ -156,9 +153,9 @@ toll table by scraping a government website for the newest zip file.
 - An id finds new rows; only a timestamp - or Change Data Capture - finds rows that changed after they were transferred
 - This is the scenario that made `lib/` grow `commit=False`, because a transaction in Python belongs to the connection and cannot be passed to a function
 
-Compared to the PowerShell version this leaves out the two sections that replay the application's
-logging events out of MinIO, which is not ported, and the bonus that streams MongoDB documents into an
-Azure SQL Database, which needs Azure.
+Compared to the PowerShell version this leaves out the bonus that streams MongoDB documents into an
+Azure SQL Database, which needs Azure. Replaying the application's own events into a target is not
+missing — it has a demo of its own, below.
 
 ### ProjectStatus
 
@@ -172,6 +169,20 @@ Azure SQL Database, which needs Azure.
 
 This is the scenario where the data is *wrong*, which none of the first four are.
 
+### Event streaming
+
+- Setup: a Redpanda container serves the Kafka API, and the PhotoService application produces an event whenever something happens
+- Starts with the outbox you may already have: `order_event`, a table written in the same transaction as the change itself
+- Then the same events on a topic, and the three problems a log solves that a table does not: polling, deleting, and a second reader
+- The replay loop turns events back into rows — three kinds are inserts, two are updates
+- Run the consuming cell twice and the second run sees only what is new, because the offset moved. Nothing had to ask the target what it already had
+- Then the part a database comparison cannot do: a reader with a new `group_id` gets the whole history and rebuilds the target from nothing
+- Redpanda Console is at `http://127.0.0.1:8080`, there for the same reason pgAdmin is
+
+**This is the only part of this repository that is not a port.** The sibling repository has no Kafka,
+so for this one demo there is nothing to show side by side — everything else here has a PowerShell
+counterpart.
+
 ## Infrastructure
 
 The repository is designed for and tested on a Windows 11 system with 32 GB of RAM. WSL2 is configured
@@ -179,16 +190,18 @@ with Docker to run the databases inside containers. The container setup is taken
 sibling repository.
 
 These containers are used: SQL Server 2025, Oracle Database Express Edition 21c, PostgreSQL with
-PostGIS, pgAdmin, MongoDB, MinIO, and one running the PhotoService application. The exact image versions
-are pinned in `docker/docker-compose.yaml`.
+PostGIS, pgAdmin, MongoDB, Redpanda with its console, and one running the PhotoService application.
+The exact image versions are pinned in `docker/docker-compose.yaml`.
 
-The MinIO container still starts, because `docker/` was taken over from the sibling unchanged, but no
-demo here uses it any more. The PhotoService container is commented out until its scenario is ported.
+The PhotoService container is the shop that keeps inventing customers and orders. It is the source of
+the data that the PhotoService and event streaming demos move, so both of those need it running — and
+it staggers its work over the first twenty minutes, so give it a little time before expecting anything
+to be there.
 
 Two of the containers have a web interface:
 
-- MinIO: http://127.0.0.1:9001/login
 - pgAdmin: http://127.0.0.1:5050/browser/
+- Redpanda Console: http://127.0.0.1:8080
 
 All accounts use the same password, which is configured in `docker/.env`. As this is a demo environment
 that only runs locally, the password is part of the repository.
@@ -241,7 +254,7 @@ for each of them:
 | Step | Runs as | What it does |
 | --- | --- | --- |
 | `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
-| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo` |
+| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo confluent-kafka` |
 | `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
 | `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
 | `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |

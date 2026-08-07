@@ -774,6 +774,61 @@ rather than a parameter.
 `Title -eq ""` and one for `NEW PROJECTS:`. After `dropna(how="all")` the blank rows are gone
 entirely, so only the second guard is left. Slightly less code, and the reason for it is visible.
 
+## Kafka
+
+### The one thing here that is not a port
+
+Everything else in this file explains why a translation came out the way it did. This entry is the
+exception: Kafka has **no counterpart in the sibling repository at all**, so it is an addition rather
+than a difference, and it is written down here because there is nowhere else that records why the two
+repositories are no longer the same shape.
+
+**How it happened:** MinIO was dropped for two good reasons, and the cost recorded at the time was
+that the PhotoService demo lost its *"Transfer data from logging (or kafka)"* section — the one that
+replays the application's own events into a target instead of comparing two databases. That section is
+the only place either repository talks about event streaming, and losing it was collateral damage from
+a decision made about *object storage*. The sibling's own section title says what the real answer
+always was.
+
+**Decision:** a `kfk` column in `lib/`, a Redpanda container, and `demo/06_eventstreaming.ipynb`.
+Redpanda rather than Apache Kafka because it speaks the Kafka protocol — so every client call, every
+word on the slide and everything the audience learns is Kafka — while being one container with no JVM,
+which matters next to the five that were already there and an Oracle image that wants 3 GB.
+
+**What stayed a port:** the events keep the shape of the sibling's `Add-LoggingEvent`, and the replay
+loop in the notebook is a translation of the loop in `demo/04_photoservice.ps1`. Only the transport
+underneath changed, from files in a bucket to messages on a topic. So the section is *recovered*, not
+invented — which is the difference between this and simply adding a feature.
+
+**Rejected:** keeping MinIO, which would have restored the two lost sections most cheaply but answers
+the storage question rather than the streaming one, and leaves the licence reason untouched. **Also
+rejected:** stopping at the `order_event` outbox table, which needs no new infrastructure and is now
+the *opening* of the demo rather than the whole of it — it makes the case for a log by running into
+the three problems a log solves.
+
+**What it costs, and it should be said plainly:** the two repositories can no longer be shown side by
+side for this one section, because one side is empty. Everything else here still can.
+
+### A topic has no end
+
+**Every other read function in `lib/`** asks a question and gets an answer. `invoke_sql_query` returns
+when the rows run out; even `read_mdb_collection`, which streams, streams something finite.
+
+**`read_kfk_topic` cannot.** A topic is a log that the producer is still writing to, so "read it" has
+no natural end and the function needs a stopping rule instead: `first` messages, or `timeout` seconds
+with nothing new.
+
+**Decision:** both, as explicit parameters, and the notebook says why rather than treating it as an
+awkwardness. It is the clearest illustration in the repository of the difference between querying a
+state and reading a history.
+
+**And the related trap, which is worse:** `from_beginning` sets `auto.offset.reset`, which applies
+**only to a consumer group with no committed offset**. Passing it to a group that has read before does
+nothing whatsoever. There is deliberately no "start again" parameter, because Kafka has no such thing —
+starting again means a new `group_id`. `lib/README.md` and the notebook both say so, because it is
+what everybody gets wrong first, and in a stepped-through notebook — where cells are re-run constantly —
+it shows up as "the cell returned nothing the second time" rather than as an error.
+
 ## MongoDB
 
 ### A connection that is not a connection
@@ -876,19 +931,27 @@ not enough to keep a deprecated dependency for.
 
 - The `mio` column of the function grid in `lib/README.md` stays empty **by decision**. Nobody should
   read it as a gap and fill it in.
-- The `minio` service is still in `docker/docker-compose.yaml`, together with `minio-init.sh` and the
-  two policy files, and `06_test_connections.py` still prints the console URL. All of it is inherited
-  from the sibling, none of it is used by a ported demo, and removing it is a separate decision that
-  has not been made.
+- **The container is gone too, and that decision has now been made.** For a long time the `minio`
+  service stayed in `docker/docker-compose.yaml` with `minio-init.sh` and the two policy files, on the
+  grounds that removing inherited infrastructure was a separate question from not porting it. Once the
+  sibling was scheduled to lose MinIO as well, that reason expired: the service, its init script, its
+  two policy files and its `.env` block have been deleted, and `06_test_connections.py` no longer
+  prints the console URL. Nothing in the user-facing documentation mentions MinIO any more; the
+  reasoning lives here, in `AGENTS.md`, and in `SIBLING-FINDINGS.md` entry 9.
 - `05_sample_data_setup.py` downloads the StackExchange files and stops there. The upload block of the
   sibling has no counterpart and will not get one.
-- **Two sections of the PhotoService demo go with it**, and that consequence was only noticed when
+- **Two sections of the PhotoService demo went with it**, and that consequence was only noticed when
   that scenario was ported. The sibling's *Transfer data from logging (or kafka)* replays the
   application's logging events out of MinIO into SQL Server, and its *Bonus: Import Logging from files
-  on MinIO* loads the same archives into a `logging` table. Both read the bucket, so both are gone —
+  on MinIO* loads the same archives into a `logging` table. Both read the bucket, so both were gone —
   and with them the one part of the demo that showed event data as an alternative to comparing two
-  tables. The application still produces those events; `docker/photoservice-app.py` prints them
-  instead of archiving them.
+  tables.
+
+  **The first of those has since come back, with Kafka underneath it instead of a bucket** — see the
+  Kafka section. That was the right conclusion in the end: the event streaming story had been lost to
+  a decision about object storage, which is a different subject, and the sibling's own section title
+  said so all along. The second one, loading log archives into a `logging` table, is still gone and
+  is not coming back; it is a file-import demo and demo 2 already is one.
 
 ## Excel
 
