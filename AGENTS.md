@@ -56,7 +56,7 @@ under Kafka. Stepped through end to end, outputs committed.
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
 | The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
-| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. |
+| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. `docker compose restart photoservice` is the cheap reset for those two demos — it truncates its own PostgreSQL tables, drops its MongoDB collection, and restarts the twenty-minute clock. See "Reset the containers" in `README.md`; a full `down -v` is almost never what is wanted here. |
 | `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
 | `05_sample_data_setup.py` | Timesheets, the StackExchange download, the Geodata downloads and the ProjectStatus Excel. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
 | `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **It is run twice by `01_setup.ps1`** — once inside WSL2 and once on Windows, because the notebooks run on the Windows interpreter and nothing else checks that one. Both runs pass on a clean install. |
@@ -545,9 +545,10 @@ thin mode and speaks the Oracle protocol itself, so there is no Instant Client.
 The containers are probably not running, and starting them costs a WSL2 boot and several minutes.
 
 **Do not run** `wsl`, `docker compose up`/`down`, `01_setup.ps1`, `start_containers.ps1`, or any
-notebook in `demo/`. `07_check_ports.ps1` **is** safe to run — it only opens and closes TCP
-connections from Windows, and it is the quickest way to find out whether the containers are up at all.
-Verify statically otherwise:
+notebook in `demo/`. **`docker compose down -v` in particular is a twenty-minute mistake** — the `-v`
+deletes the volumes, and getting them back means another Oracle start. Recommend it, never run it.
+`07_check_ports.ps1` **is** safe to run — it only opens and closes TCP connections from Windows, and it
+is the quickest way to find out whether the containers are up at all. Verify statically otherwise:
 
 ```bash
 # Syntax check — works with nothing installed beyond Python

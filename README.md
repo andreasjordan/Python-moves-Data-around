@@ -287,6 +287,49 @@ down along with all containers.
 
 To restart the containers, simply execute `start_containers.ps1` in a non-elevated PowerShell.
 
+This keeps all data. It is a restart, not a reset — the volumes survive, so every table a demo wrote
+last time is still there. One thing to expect in `docker compose logs sqlserver` afterwards: its init
+script runs on every start and its `CREATE LOGIN` / `CREATE DATABASE` statements are unconditional, so
+the log fills with "already exists" errors. They are harmless and the databases are fine.
+
+
+### Reset the containers
+
+A demo leaves data behind, and the next run of the same demo may not like it. There are two levels of
+reset, and the cheap one is usually the one you want.
+
+Both commands below are run from the repository directory, and both need the containers to be up —
+they talk to the docker daemon inside WSL2. If WSL2 has been shut down, run `start_containers.ps1`
+first, because that is what starts the daemon.
+
+**Just the PhotoService application.** This is what demos 4 and 6 need, and it costs seconds:
+
+```
+wsl --cd "$PWD\docker" --user root docker compose restart photoservice
+```
+
+The application truncates its own PostgreSQL tables and drops its MongoDB collection when it starts, so
+this puts it back to nothing. It also restarts the clock: the first order is scheduled ten minutes
+later, the first payment at fifteen, the first shipment at twenty. **Give it twenty minutes before
+expecting demos 4 and 6 to be interesting** — inside that window the tables and the Kafka topic are
+nearly empty, which looks broken and is not.
+
+Note what this does *not* touch: the SQL Server tables those demos transfer data *into*. Those are the
+demo's own output, and the notebooks clean up after themselves.
+
+**Everything, back to how the setup left it:**
+
+```
+wsl --cd "$PWD\docker" --user root docker compose down -v
+.\start_containers.ps1
+```
+
+`-v` is the whole point — it removes the named volumes, and that is what actually deletes the data.
+Without it you get the restart described above. With it, every container starts empty and re-runs its
+init scripts, so all five scenarios' databases are created again exactly as the setup made them.
+
+This costs another Oracle start, so budget about fifteen minutes. It does not re-download the images.
+
 
 ### When something cannot connect
 
