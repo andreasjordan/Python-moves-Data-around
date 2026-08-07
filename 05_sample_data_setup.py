@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,34 @@ timesheets_path = Path(__file__).parent / "data" / "timesheets"
 stackexchange_path = Path(__file__).parent / "data" / "stackexchange"
 geodata_path = Path(__file__).parent / "data" / "geodata"
 projectstatus_path = Path(__file__).parent / "data" / "projectstatus"
+
+# The Excel files are generated from sample.json and are rebuilt every time - that costs a second.
+# The downloads are about 15 MB from three different sites, most of it countries.geojson, so they
+# are skipped when the files are already there. To fetch them again:
+#
+#   python 05_sample_data_setup.py --force
+force = "--force" in sys.argv
+
+
+def download(url, target):
+    # Download to a temporary name and rename only once the whole file has arrived. A half written
+    # countries.geojson otherwise stays behind looking like a perfectly good file, and fails much
+    # later inside demo 3 as a JSONDecodeError that says nothing about a download.
+    temporary = target.with_name(target.name + ".part")
+
+    with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as file:
+        shutil.copyfileobj(response, file)
+        expected = response.headers.get("Content-Length")
+
+    # A server that closes the connection early gives us a short file and no error at all, so
+    # compare what arrived against what was announced. Chunked responses announce nothing.
+    size = temporary.stat().st_size
+    if expected is not None and size != int(expected):
+        temporary.unlink()
+        raise OSError(f"{target.name} is incomplete: got {size} bytes, expected {expected}")
+
+    temporary.replace(target)
+
 
 # TimeSheets
 # Excel files will be generated from sample.json
@@ -68,23 +97,25 @@ for department in departments:
 # XML files will be downloaded from archive.org/download/stackexchange
 site = "dba.meta"
 archive = stackexchange_path / "tmp.7z"
+xml_files = sorted(stackexchange_path.glob("*.xml"))
 
-print(f"Downloading StackExchange data for {site}")
+if xml_files and not force:
+    print(f"Keeping the {len(xml_files)} StackExchange XML files that are already there")
+else:
+    print(f"Downloading StackExchange data for {site}")
 
-url = f"https://archive.org/download/stackexchange/{site}.stackexchange.com.7z"
-with urllib.request.urlopen(url) as response, archive.open("wb") as file:
-    shutil.copyfileobj(response, file)
+    download(f"https://archive.org/download/stackexchange/{site}.stackexchange.com.7z", archive)
 
-print(f"Downloaded {archive.name} with {archive.stat().st_size / 1024 / 1024:.1f} MB")
+    print(f"Downloaded {archive.name} with {archive.stat().st_size / 1024 / 1024:.1f} MB")
 
-# 7za is installed by 02_wsl2_setup.sh, the same way the sibling repository uses it.
-# "e" extracts all files of the archive into the working directory.
-subprocess.run(["7za", "e", "-y", archive.name], cwd=stackexchange_path, check=True, capture_output=True)
+    # 7za is installed by 02_wsl2_setup.sh, the same way the sibling repository uses it.
+    # "e" extracts all files of the archive into the working directory.
+    subprocess.run(["7za", "e", "-y", archive.name], cwd=stackexchange_path, check=True, capture_output=True)
 
-archive.unlink()
+    archive.unlink()
 
-for file in sorted(stackexchange_path.glob("*.xml")):
-    print(f"Created {file.name} with {file.stat().st_size / 1024 / 1024:.1f} MB")
+    for file in sorted(stackexchange_path.glob("*.xml")):
+        print(f"Created {file.name} with {file.stat().st_size / 1024 / 1024:.1f} MB")
 
 
 # Geodata
@@ -92,43 +123,49 @@ for file in sorted(stackexchange_path.glob("*.xml")):
 # One GPX file will be downloaded from https://www.michael-mueller-verlag.de/de/reisefuehrer/deutschland/berlin-city/gps-daten/
 # GeoJSON file will be downloaded from datahub.io/core/geo-countries
 radrouten_path = geodata_path / "radrouten-berlin"
-
-# Start from a clean directory, so a renamed file in the archive does not linger
-for file in list(geodata_path.glob("*.gpx")) + list(geodata_path.glob("*.geojson")):
-    file.unlink()
-if radrouten_path.exists():
-    shutil.rmtree(radrouten_path)
-radrouten_path.mkdir()
-
-print("Downloading GPX data from berlin.de")
-
-archive = radrouten_path / "tmp.7z"
-with urllib.request.urlopen(
-    "https://www.berlin.de/sen/uvk/_assets/verkehr/verkehrsplanung/radverkehr/radrouten/radrouten_komplett.7z"
-) as response, archive.open("wb") as file:
-    shutil.copyfileobj(response, file)
-
-subprocess.run(["7za", "e", "-y", archive.name], cwd=radrouten_path, check=True, capture_output=True)
-
-archive.unlink()
-
-print(f"Created radrouten-berlin with {len(list(radrouten_path.glob('*.gpx')))} GPX files")
-
-print("Downloading GPX data from michael-mueller-verlag.de")
-
 single_gpx = geodata_path / "michael-mueller-verlag-berlin.gpx"
-with urllib.request.urlopen("https://mmv.me/52630/00.gpx") as response, single_gpx.open("wb") as file:
-    shutil.copyfileobj(response, file)
-
-print(f"Created {single_gpx.name} with {single_gpx.stat().st_size / 1024:.0f} KB")
-
-print("Downloading GeoJSON data from datahub.io")
-
 countries = geodata_path / "countries.geojson"
-with urllib.request.urlopen("https://datahub.io/core/geo-countries/r/0.geojson") as response, countries.open("wb") as file:
-    shutil.copyfileobj(response, file)
 
-print(f"Created {countries.name} with {countries.stat().st_size / 1024 / 1024:.1f} MB")
+# The three downloads are checked one at a time, so a missing one does not fetch the other two again
+if any(radrouten_path.glob("*.gpx")) and not force:
+    print(f"Keeping radrouten-berlin with {len(list(radrouten_path.glob('*.gpx')))} GPX files")
+else:
+    # Start from a clean directory, so a renamed file in the archive does not linger
+    if radrouten_path.exists():
+        shutil.rmtree(radrouten_path)
+    radrouten_path.mkdir()
+
+    print("Downloading GPX data from berlin.de")
+
+    archive = radrouten_path / "tmp.7z"
+    download(
+        "https://www.berlin.de/sen/uvk/_assets/verkehr/verkehrsplanung/radverkehr/radrouten/radrouten_komplett.7z",
+        archive
+    )
+
+    subprocess.run(["7za", "e", "-y", archive.name], cwd=radrouten_path, check=True, capture_output=True)
+
+    archive.unlink()
+
+    print(f"Created radrouten-berlin with {len(list(radrouten_path.glob('*.gpx')))} GPX files")
+
+if single_gpx.exists() and not force:
+    print(f"Keeping {single_gpx.name} with {single_gpx.stat().st_size / 1024:.0f} KB")
+else:
+    print("Downloading GPX data from michael-mueller-verlag.de")
+
+    download("https://mmv.me/52630/00.gpx", single_gpx)
+
+    print(f"Created {single_gpx.name} with {single_gpx.stat().st_size / 1024:.0f} KB")
+
+if countries.exists() and not force:
+    print(f"Keeping {countries.name} with {countries.stat().st_size / 1024 / 1024:.1f} MB")
+else:
+    print("Downloading GeoJSON data from datahub.io")
+
+    download("https://datahub.io/core/geo-countries/r/0.geojson", countries)
+
+    print(f"Created {countries.name} with {countries.stat().st_size / 1024 / 1024:.1f} MB")
 
 
 # ProjectStatus

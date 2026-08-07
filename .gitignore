@@ -9,6 +9,10 @@ __pycache__/
 # and deletes it again in the next cell. If that cell is not reached, this keeps it out.
 demo/test.jpg
 
+# 05_sample_data_setup.py downloads to "<name>.part" and renames only when the file is complete.
+# One left behind means a download died halfway.
+data/**/*.part
+
 data/timesheets/*.xlsx
 data/projectstatus/*.xlsx
 data/stackexchange/*.xml

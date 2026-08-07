@@ -149,7 +149,23 @@ unpacks them over the existing ones.
 
 **Careful:** this is what hides finding 4. Fix 4 first, or fix both together.
 
-**Here:** the same behaviour — the Python `05` also downloads every time. Not fixed on either side.
+**Here:** **fixed.** Finding 4 was fixed first, so this was safe to do. `05_sample_data_setup.py` skips
+each download when its files are already present, and `--force` fetches them again. Three things worth
+copying when this is done there:
+
+- **Check the three Geodata artifacts separately.** They come from three different sites; deleting one
+  should not re-fetch the other two. The old code deleted all of them up front, which made a
+  per-artifact check impossible without restructuring.
+- **Download to `<name>.part` and rename only when the file is complete**, comparing the size against
+  `Content-Length` first. All four hosts send it. This closes a second, quieter bug: a download cut off
+  halfway used to leave a file that looks perfectly good and fails much later, inside demo 3, as a
+  `JSONDecodeError` that says nothing about a download.
+- **A coarse check is the right one here.** "Are there any `*.xml`" does not notice a half-extracted
+  archive, and should not try to — `--force` is the answer to that, and a setup script that models
+  partial states stops being readable.
+
+A useful side effect: `05` now runs on Windows when the data is already there, because every download
+is skipped and `7za` — which is not on the Windows PATH — is never reached.
 
 ---
 
@@ -322,8 +338,9 @@ here), the producer calls in `photoservice-app.ps1`, and a `demo/06_eventstreami
 4. **The application truncates its tables at startup and staggers its work over twenty minutes.** A
    demo run inside that window shows an empty topic and zero counts, and looks broken when it is not.
 
-**Here:** written, and **not yet working** — the notebook exists but has not been stepped through
-successfully. Do not port it back until it has been.
+**Here:** done and shipped in `8b186bc`. The notebook has been stepped through end to end and its
+outputs are committed, the four lessons above came out of that run, and the `kfk` functions are in
+`lib/`. Nothing here is waiting on anything — this entry is now purely a work list for the other side.
 
 ---
 

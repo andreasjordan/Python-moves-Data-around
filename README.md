@@ -258,7 +258,7 @@ for most of them, and finishes on the Windows side:
 | `02_wsl2_setup.sh` | root, in WSL2 | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
 | `03_python_setup.sh` | you, in WSL2 | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo confluent-kafka` |
 | `04_docker_compose.sh` | root, in WSL2 | Waits for the docker daemon, starts the containers, and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
-| `05_sample_data_setup.py` | you, in WSL2 | Creates `data/timesheets/*.xlsx` from `sample.json` |
+| `05_sample_data_setup.py` | you, in WSL2 | Creates the Excel files from `sample.json` and downloads the StackExchange and Geodata samples. A download is skipped when its files are already there; `--force` fetches them again |
 | `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |
 | `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
 

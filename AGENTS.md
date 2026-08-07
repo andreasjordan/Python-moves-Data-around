@@ -325,18 +325,25 @@ import error and have no reason to suspect the setup script.
 `data/` holds the inputs for the scenarios. Everything generated or downloaded is gitignored, so a
 fresh clone has only the `README.md` files, `sample.json` and the PhotoService photos.
 
-`05_sample_data_setup.py` creates or downloads the rest, and **it downloads everything on every run** —
-see finding 5 in `SIBLING-FINDINGS.md`, which is open on both sides. The Geodata part pulls about 15 MB,
-most of it `countries.geojson`.
+`05_sample_data_setup.py` creates or downloads the rest. The Excel files are rebuilt from `sample.json`
+every run, which costs a second. **The four downloads are skipped when the files are already there** —
+about 15 MB from three sites, most of it `countries.geojson`. `python 05_sample_data_setup.py --force`
+fetches them again. That was finding 5 in `SIBLING-FINDINGS.md`, fixed here and still open there.
+
+The three Geodata artifacts are checked one at a time, so deleting one does not re-fetch the other two.
+The StackExchange check is "are there any `*.xml`", which is coarse on purpose: a half-extracted archive
+is not a state worth modelling in a setup script, and `--force` is the answer to it.
 
 Two practical notes for an agent that needs the data present:
 
 - `05` extracts the Berlin GPX archive with `7za`, which exists in WSL2. On Windows the equivalent is
-  `C:\Program Files\7-Zip\7z.exe`, which is installed but not on the PATH. A scratchpad script that
-  fetches the data for local development has to use the full path.
-- A large download run with `run_in_background` can be cut off, and a truncated
-  `countries.geojson` fails as `JSONDecodeError` a long way downstream. It should be
-  **14643643 bytes / 258 features**; check the size before trusting it.
+  `C:\Program Files\7-Zip\7z.exe`, which is installed but not on the PATH. **This no longer blocks
+  running `05` on Windows** when the data is already there: every download is skipped and `7za` is
+  never reached. With `--force`, or on a fresh clone, it still is.
+- A download that is cut off can no longer leave a truncated file behind. `download()` writes to
+  `<name>.part`, compares the size against `Content-Length` — all four hosts send it — and renames only
+  then. `countries.geojson` should be **14643643 bytes / 258 features**, which is still the quickest
+  way to confirm the file by hand.
 
 ## Demo notebooks are stepped through, never run
 
