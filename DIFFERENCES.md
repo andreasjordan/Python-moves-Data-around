@@ -1060,6 +1060,103 @@ container log. `docker logs` keeps the output of previous runs, so on a restarte
 matches **immediately** — the check passed in one second while the server was still starting. It would
 have looked like a fix and silently reintroduced the race. The wait queries `sys.databases` instead.
 
+### A wait that cannot say why it failed
+
+**Symptom:** none observed — this is the failure mode the wait above would have had the first time it
+went wrong in front of an audience.
+
+**Cause:** the probes send stderr to `/dev/null`, and they have to. For most of the wait, "the user
+does not exist yet" and "the database is not there yet" *are* the normal answers, so printing them
+would fill the screen with errors that mean nothing. But that leaves the give-up path with one line
+and no diagnosis, and it keeps probing for the full 5 or 15 minutes even when the container has
+already exited — a container killed by its `mem_limit` is indistinguishable from a slow one.
+
+**Decision:** `wait_for` checks `docker compose ps --status running` on each round and stops early if
+the container is gone, and the failure path prints `docker compose logs --tail 50` for that service.
+The first argument became the **compose service name** rather than a display name, so the message names
+exactly what you would type next.
+
+**And the daemon itself is waited for.** `02_wsl2_setup.sh` starts docker, but `01_setup.ps1` runs
+`wsl --shutdown` immediately afterwards, and `start_containers.ps1` runs after a reboot. In both cases
+the daemon comes back only because systemd starts it, which is a race against `docker compose up`
+running seconds after WSL2 boots. `04` now runs `service docker start` and polls `docker info` before
+it does anything else.
+
+**Rejected:** a `healthcheck` per service in the compose file with `depends_on: condition:
+service_healthy`. It is the idiomatic answer and it would move the waits out of the shell script — but
+the thing being waited for is not "the server answers", it is "the init script has finished creating
+the last demo database", which is what actually bit. Expressing that as a healthcheck means the same
+query in a less visible place, and the setup step would stop being able to explain itself.
+
+### The one password, in fifteen files
+
+**The sibling:** the same, verbatim — `docker/` came over unchanged.
+
+**What was there:** `README.md` said the password "is configured in `docker/.env`". It appears 22 times
+across 15 files in `docker/`, and `.env` fed four container environment variables. `sqlserver-init.sh`
+had it as a literal six times, in a container that already has `MSSQL_SA_PASSWORD` in its environment,
+and `04_docker_compose.sh` had it three more times. Changing `.env` would have broken the setup in
+places that look unrelated to it.
+
+**Decision:** `sqlserver-init.sh` uses `$MSSQL_SA_PASSWORD`, and `04_docker_compose.sh` sources
+`docker/.env` — which is valid shell as well as a Compose env file — and uses `$MSSQL_SA_PASSWORD` and
+`$PASSWORD` in its probes.
+
+**Not changed, deliberately:** the `CREATE USER` statements in `sqlserver-*.sql`, `oracle-*.sql`,
+`postgres-*.sql` and `mongo-init.js`. Making those interpolate means an entrypoint that rewrites SQL
+before running it, and the visible password is part of the teaching — a `CREATE USER ... WITH PASSWORD
+'Passw0rd!'` on a slide says what it does. `README.md` now states which files still hold the literal
+instead of implying there is one place.
+
+### The half of the setup nothing checked
+
+**The sibling:** the same gap, and worse — its `06_test_connections.ps1` also runs only inside WSL2,
+while its demos run from Windows PowerShell.
+
+**What was there:** `01_setup.ps1` shelled into WSL2 for every step, including
+`06_test_connections.py`. The notebooks run on the **Windows** interpreter, whose packages came from a
+prose list in `README.md` that had to be kept in sync by hand — and had drifted twice, for `pymongo`
+and for `confluent-kafka`. So the setup could finish completely green while the machine that runs the
+demo had no driver at all.
+
+**Decision:** `01_setup.ps1` ends with a `pip install` on Windows and a second run of
+`06_test_connections.py` there. The same script, both sides — the check is worth nothing on the side
+that never opens a notebook, and it needed no new code to move it to the side that does.
+
+**Consequence for `AGENTS.md`:** adding a dependency now means editing **two** `pip install` lines, in
+two different files and two different languages. That is worse than one list, and it is why a
+`requirements.txt` was raised — see the note there. `notebook` is deliberately only in the Windows
+list.
+
+**What it caught on its very first run, which is the point:** a connection failure to Oracle from
+Windows, seconds after the WSL2 run of the same script had connected to the same database. See below.
+
+### Two loopbacks, and only one of them is the demo's
+
+**Symptom:** `DPY-6005` / `WinError 10061` connecting to Oracle from Windows, while `06` had just
+passed inside WSL2 and `wait_for oracle` had confirmed the demo user exists.
+
+**Cause:** `127.0.0.1:1521` does not mean the same thing on the two sides of WSL2. Inside WSL2 it is
+docker's published port. On Windows it is a `wslrelay` listener that Windows creates a moment after
+docker binds the port inside the VM — and those moments are not the same for every port. Four of the
+five forwards were up; 1521 was not yet. Verified afterwards with the containers still running: every
+port had a relay listener, every one accepted a connection, and the Windows `06` passed with exit 0.
+
+**Why this is not a Python difference at all,** and is recorded here anyway: it is the one place where
+the *shape* of this repository — WSL2 for the infrastructure, Windows for the demos — produces a
+failure the sibling would produce identically. It is written down because the error names Oracle and
+means the network.
+
+**Decision:** `01_setup.ps1` waits until all five database ports accept a connection *from Windows*
+before it runs `06` there. Same idea as the waits in `04`, one boundary further out. Silent, and 0.1 s
+when the forwards are already up.
+
+**Rejected:** retrying `06` a few times instead. It would have worked, but each attempt prints a full
+traceback, so a genuinely broken driver would bury its own diagnosis under three copies of a stack. The
+wait is silent until it gives up, and then it names the port rather than the database.
+
+**Not established:** *why* one port lags the others. Do not invent a mechanism for it.
+
 ---
 
 ## The demos themselves

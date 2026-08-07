@@ -3,8 +3,9 @@
 Work for [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around),
 written down on this side. There are two kinds of entry:
 
-- **Findings (1–8)** — things found while porting to Python. They were found here, they have to be
-  fixed there. Nothing in them is a Python problem.
+- **Findings (1–8, 11–13)** — things found here that have to be fixed there. Nothing in them is a
+  Python problem. 1–8 came out of porting the demos; 11–13 came out of reviewing the setup chain, so
+  they are all in `01_setup.ps1`, `04_docker_compose.sh` and `docker/`.
 - **Things to build there (9–10)** — where this repository has gone first and the PowerShell one is
   meant to follow. These are not defects; they are a plan.
 
@@ -323,3 +324,88 @@ here), the producer calls in `photoservice-app.ps1`, and a `demo/06_eventstreami
 
 **Here:** written, and **not yet working** — the notebook exists but has not been stepped through
 successfully. Do not port it back until it has been.
+
+---
+
+## 11. The password is not configured in `docker/.env`
+
+**Where:** `docker/sqlserver-init.sh`, and the sentence in `README.md` that says otherwise
+
+**What:** `Passw0rd!` appears 22 times across 15 files in `docker/`. `.env` feeds four container
+environment variables; everything else has it as a literal. `sqlserver-init.sh` is the clearest case —
+it hard-codes the password six times inside a container that already has `MSSQL_SA_PASSWORD` in its
+environment.
+
+**Effect:** changing `docker/.env` does not change the password. It changes what SQL Server, Oracle,
+PostgreSQL and MongoDB are started with, while every `CREATE USER` statement and every `sqlcmd` call
+keeps the old one — so the setup breaks in places that look unrelated to what was edited. The README of
+both repositories says the password "is configured in `docker/.env`", which is what makes this a trap
+rather than a nuisance.
+
+**Fix:** `-P "$MSSQL_SA_PASSWORD"` in `sqlserver-init.sh`. Leave the `CREATE USER` statements alone —
+making those interpolate needs an entrypoint that rewrites SQL, and the visible literal is part of the
+teaching. Then say in the README which files still hold it.
+
+**Here:** fixed in `sqlserver-init.sh`, and `04_docker_compose.sh` sources `docker/.env` for its
+probes rather than repeating the literal. The `CREATE USER` statements are unchanged on purpose and the
+README now names them.
+
+---
+
+## 12. `06_test_connections.ps1` checks the wrong machine
+
+**Where:** `01_setup.ps1`, the `06` step
+
+**What:** every setup step is run inside WSL2, including the connection test. The demos are run from
+Windows.
+
+**Effect:** the setup can finish completely green while the machine that runs the demo cannot reach a
+single database. Whatever `06` proves, it proves about an environment no demo ever uses. In this
+repository the two runtimes had already drifted twice — `pymongo` and `confluent-kafka` were added to
+the WSL2 install and to the Windows one at different times, by hand.
+
+**Fix:** run `06` a second time from Windows at the end of `01_setup.ps1`. The script is the same one;
+only the interpreter under it changes. Install the modules there in the same step, so the Windows list
+stops being a prose block in the README that somebody has to remember.
+
+**Here:** fixed. `01_setup.ps1` starts with a `pip install` on Windows and ends with a second
+`06_test_connections.py` there. The cost is that a new dependency now has to be added to two
+`pip install` lines in two files, which `AGENTS.md` calls out explicitly.
+
+**Two things learned doing it, both of which transfer:**
+
+1. **Nothing after the containers start may abort the script.** The last line of `01_setup.ps1` is the
+   `wsl` shell that keeps the containers alive; a `throw` above it skips that line, WSL2 idles out, and
+   twenty minutes of container startup is gone. This happened on the first run. The Windows check now
+   remembers its failure, lets the shell open, and throws after it returns.
+2. **Wait for the port forwarding before checking connections from Windows.** `127.0.0.1:1521` is
+   docker's published port inside WSL2 and a `wslrelay` listener on Windows, and the relay does not
+   publish every port at the same moment. On the first clean install, four forwards were up and 1521
+   was not — which failed the check while Oracle was running and answering inside WSL2. The error names
+   Oracle and means the network.
+
+---
+
+## 13. The docker daemon is not waited for either
+
+**Where:** `04_docker_compose.sh` and `start_containers.ps1`. Extends finding 4.
+
+**What:** finding 4 is about waiting for the *databases*. This is one layer below it: nothing waits for
+the *daemon*. `02_wsl2_setup.sh` starts docker, but `01_setup.ps1` runs `wsl --shutdown` immediately
+afterwards, and `start_containers.ps1` runs after a reboot. In both cases docker comes back only
+because systemd starts it, and `docker compose up` runs seconds after WSL2 boots.
+
+**Effect:** intermittent, and it looks like a compose problem rather than a timing one.
+
+**Second half of this, and the more useful half:** when a wait does fail, it says nothing. The probes
+have to discard stderr — for most of the wait, "that user does not exist yet" is the correct answer —
+so the give-up path prints one line with no cause. And it keeps probing for the full timeout even when
+the container has already exited, so a container killed by its `mem_limit` is indistinguishable from a
+slow one. Fifteen minutes of that, in front of an audience, then one line.
+
+**Fix:** `service docker start` and a `docker info` poll before `docker compose up`; check
+`docker compose ps --status running` on each round of the wait and stop early if the container is gone;
+print `docker compose logs --tail 50` for that service on the failure path.
+
+**Here:** fixed, all three. `wait_for` also takes the compose service name rather than a display name
+now, so the failure message names what you would type next.

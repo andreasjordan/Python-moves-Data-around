@@ -54,12 +54,12 @@ under Kafka. Stepped through end to end, outputs committed.
 | `lib/` | Twenty-two functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, `connect`, `write` and `read` for `mdb`, and two `connect`s plus `write` and `read` for `kfk`. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
 | `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
-| The setup chain | Ported to Python and verified end to end against a clean WSL2. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. |
+| The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. |
 | `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
 | `05_sample_data_setup.py` | Timesheets, the StackExchange download, the Geodata downloads and the ProjectStatus Excel. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
-| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **Its MongoDB block will fail inside WSL2** unless `03_python_setup.sh` has been re-run since `pymongo` was added to it. |
+| `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **It is run twice by `01_setup.ps1`** — once inside WSL2 and once on Windows, because the notebooks run on the Windows interpreter and nothing else checks that one. Both runs pass on a clean install. |
 
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
@@ -110,6 +110,66 @@ spends minutes downloading sample data. Do not check the container log for the i
 immediately after a restart. All four databases have their own wait now. Oracle's is a shell
 function rather than a one-liner, because `sqlplus` takes its query on stdin, and it gets 15 minutes
 instead of 5, because Oracle takes far longer to start than the other two.
+
+Three things around those waits are also load-bearing, and each one exists because the failure it
+prevents is silent or misleading:
+
+- **It waits for the docker daemon first.** `02` starts it, but `01_setup.ps1` then runs
+  `wsl --shutdown`, and `start_containers.ps1` runs after a reboot — so in both cases the daemon has to
+  come up again, and it only does because systemd starts it. That is a race right after WSL2 boots.
+- **`wait_for` gives up when the container has stopped**, instead of sitting out the full 5 or 15
+  minutes. A container killed by its `mem_limit` otherwise looks exactly like one that is merely slow.
+- **The failure path prints `docker compose logs --tail 50`.** The probe itself sends stderr to
+  `/dev/null` — it has to, because "the user does not exist yet" is the normal state for most of the
+  wait — so without this a failure explains nothing at all.
+
+`04` also sources `docker/.env`, so the passwords in the probes are not a fourth copy of the literal.
+That file is valid shell as well as a Compose env file, which is why this works.
+
+**Nothing after `04` may abort `01_setup.ps1`**, and this was learned the expensive way. The last line
+of that script is the `wsl` shell that keeps the containers alive; a `throw` above it skips that line,
+WSL2 idles out, and every container built in the preceding twenty minutes is gone — Oracle alone is
+most of that time. The Windows `06` therefore records its failure in a variable, lets the shell open,
+and throws only after it returns. Any check added after the containers exist has to do the same.
+
+### The port forwarding arrives late, and it does not arrive for all ports at once
+
+**This cost a full teardown once, and it looks exactly like a broken database.** On the first clean
+install that ran the Windows `06`, it connected to SQL Server on 1433 twice and then failed on Oracle:
+
+```
+oracledb.exceptions.OperationalError: DPY-6005: cannot connect to database
+[WinError 10061] ... da der Zielcomputer die Verbindung verweigerte
+```
+
+Seconds earlier the **same script had connected to the same Oracle database from inside WSL2**, and
+`wait_for oracle` had already confirmed the demo user exists. `WinError 10061` is a refusal at connect
+time: nothing was listening on the *Windows* side of the forward. Oracle never said no.
+
+**Measured afterwards, with the containers still up:** all seven ports had a `wslrelay` listener on
+`::1`, every one accepted a connection, and `06_test_connections.py` passed from Windows end to end
+with exit 0 — same driver, same DSN, same everything. So the port forward for 1521 was simply not
+there yet at the moment the check ran, while the other four were.
+
+Ruled out on the way: there is no `.wslconfig` (so default NAT with `localhostForwarding`), no firewall
+rule for either port, no Hyper-V excluded-port range covering 1433 or 1521, and no Windows process
+holding 1521. **Why one port lags the others is not established** — do not write down a mechanism for
+it without evidence.
+
+**What was done about it:** `01_setup.ps1` waits for all five database ports to accept a connection
+from Windows before it runs `06` there. That is the same idea as the waits in `04`, one boundary
+further out — `04` waits for the databases inside WSL2, this waits for Windows to be able to see them.
+The wait is silent and costs 0.1 s when the forwards are already up.
+
+Two things follow for anything added here:
+
+- **A single connection failure from Windows is not evidence that a container is broken.** Check
+  whether Windows has a listener for that port first.
+- **`07_check_ports.ps1` is the diagnostic that settled it**, and it is in the repository for that
+  reason. For each published port it prints whether `Get-NetTCPConnection -State Listen` finds a
+  listener and whether a TCP connect succeeds. Run it from a second PowerShell window while
+  `01_setup.ps1` or `start_containers.ps1` sits in its shell. It is safe for an agent to run: it opens
+  and closes TCP connections and starts nothing.
 
 ## What is left to port
 
@@ -233,17 +293,32 @@ should be.
 owner has to. What an agent **can** and must do, in the same turn as the code that needs it:
 
 1. Add it to the `pip install` line in `03_python_setup.sh` — that is WSL2, where `06` runs.
-2. Add it to the pip block in `README.md`, and to the `03_python_setup.sh` row of the setup table there.
-3. Add it to the runtime dependency list in the `Loading model` section below.
-4. Then tell the owner the exact command to run on Windows, where the notebooks live.
+2. Add it to the `pip install` line in `01_setup.ps1` — that is Windows, where the notebooks run.
+   **There are two lists and they are not the same file.** Miss this one and the setup still finishes
+   green, because `03` and `06` inside WSL2 never touch the interpreter the demos use.
+3. Add it to the pip block in `README.md`, and to the `03_python_setup.sh` row of the setup table there.
+4. Add it to the runtime dependency list in the `Loading model` section below.
 
-Do not wait to be asked for steps 1 to 3. The owner has had to prompt for it once
+Do not wait to be asked for any of these. The owner has had to prompt for it once
 ("You have not changed the 03_python_setup.sh - so I wait for that to change?") and it should not
 happen again.
 
-**Currently known gap:** `confluent-kafka` was added to `03_python_setup.sh` for the Kafka demo.
-Unless that script has been re-run since, `06_test_connections.py` will fail on its Kafka block inside
-WSL2. (`pymongo` had the same gap and was closed by the clean WSL2 install.) The Windows install was done, so the notebooks are fine.
+`notebook` is the one package that is deliberately only in the Windows list — no notebook is ever run
+inside WSL2.
+
+The owner no longer has to install anything on Windows by hand: `01_setup.ps1` starts with the Windows
+`pip install` and ends by running `06_test_connections.py` a second time from Windows. Re-running
+`01_setup.ps1` is therefore what closes a dependency gap on both sides.
+
+The Windows `pip install` is the **first** step of the script, before any WSL2 work. It is the only
+step that costs nothing when it fails, and putting it last meant finding a broken Windows interpreter
+after a quarter of an hour of Oracle starting up.
+
+**No known gap today.** Both lists were installed and both runs of `06_test_connections.py` passed on
+a clean install, so WSL2 and Windows are in step. The two gaps that existed before — `pymongo`, then
+`confluent-kafka` — were each closed only by a re-run of the setup, which is the failure mode the two
+lists invite. If you add a package and do not say so, the next person to hit it will see a driver
+import error and have no reason to suspect the setup script.
 
 ## The sample data on disk
 
@@ -323,7 +398,7 @@ came back empty, and read the cells whose numbers the narration quotes. That las
 contradiction twice — a markdown cell asserting a count that the cell above it no longer printed.
 
 Scripts that *are* meant to run: the numbered scripts in the repository root (subject to the table
-above) and `start_containers.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
+above), `07_check_ports.ps1` and `start_containers.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
 imported.
 
 ## Repository map
@@ -331,6 +406,7 @@ imported.
 | Path | What it is |
 | --- | --- |
 | `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. |
+| `07_check_ports.ps1` | **Not part of the setup sequence** — `01_setup.ps1` does not run it. A diagnostic for when the Windows half of the setup cannot reach a database: it prints, per published port, whether Windows has a `wslrelay` listener and whether a connection gets through. Read-only. |
 | `start_containers.ps1` | Restarts the Docker containers after a reboot. |
 | `data/<scenario>/` | Sample data per scenario. Generated and downloaded artifacts are gitignored; only `README.md` and `sample.json` (plus the photos) are committed. |
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
@@ -463,7 +539,9 @@ yet; `README.md` says so and calls it "quick and dirty". Do not add either one w
 The containers are probably not running, and starting them costs a WSL2 boot and several minutes.
 
 **Do not run** `wsl`, `docker compose up`/`down`, `01_setup.ps1`, `start_containers.ps1`, or any
-notebook in `demo/`. Verify statically instead:
+notebook in `demo/`. `07_check_ports.ps1` **is** safe to run — it only opens and closes TCP
+connections from Windows, and it is the quickest way to find out whether the containers are up at all.
+Verify statically otherwise:
 
 ```bash
 # Syntax check — works with nothing installed beyond Python

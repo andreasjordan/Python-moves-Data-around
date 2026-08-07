@@ -11,16 +11,14 @@ I will present this at the [IT-Tage 2026 in Frankfurt](https://www.ittage.inform
 
 Currently, I do it "quick and dirty".
 
-I have installed Python 3.14.6 on my Windows 11 system and also installed the needed modules with pip without using virtual environments. I will later use and document a cleaner setup.
+I have installed Python 3.14.6 on my Windows 11 system, without using virtual environments. I will later use and document a cleaner setup.
+
+The packages are installed by `01_setup.ps1`, which also runs `06_test_connections.py` on Windows —
+everything else in the setup happens inside WSL2, but this is the side the notebooks run on. These are
+the packages it installs:
 
 ```
-python -m pip install pyodbc
-pip install pandas openpyxl
-pip install notebook
-pip install "psycopg[binary]"
-pip install oracledb
-pip install pymongo
-pip install confluent-kafka
+python -m pip install pandas openpyxl pyodbc "psycopg[binary]" oracledb pymongo confluent-kafka notebook
 ```
 
 I have installed the "SQL Server ODBC driver" using these links:
@@ -78,6 +76,7 @@ Working today:
 | Path | Content |
 | --- | --- |
 | `01_setup.ps1` … `06_test_connections.py` | The setup steps. `01_setup.ps1` runs all of them. |
+| `07_check_ports.ps1` | Not a setup step. Checks whether Windows can reach the container ports, for when something cannot connect. |
 | `start_containers.ps1` | Restarts the containers after a reboot. |
 | `data/` | One directory per scenario for the sample data. The generated and downloaded files are not part of the repository. |
 | `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
@@ -203,8 +202,10 @@ Two of the containers have a web interface:
 - pgAdmin: http://127.0.0.1:5050/browser/
 - Redpanda Console: http://127.0.0.1:8080
 
-All accounts use the same password, which is configured in `docker/.env`. As this is a demo environment
-that only runs locally, the password is part of the repository.
+All accounts use the same password. As this is a demo environment that only runs locally, the password
+is part of the repository. `docker/.env` is where it is configured for the containers themselves, and
+`04_docker_compose.sh` reads it from there — but the `CREATE USER` statements in the init SQL still
+have it as a literal, so changing `docker/.env` alone is not enough to change it everywhere.
 
 Both repositories use the same host ports, so only one of them can have its containers running at a
 time.
@@ -249,15 +250,28 @@ Remove-Item -Path $PWD\Python-moves-Data-around.zip
 ### Start the installation
 
 To run all setup steps, simply execute `01_setup.ps1` in a non-elevated PowerShell. It shells into WSL2
-for each of them:
+for most of them, and finishes on the Windows side:
 
 | Step | Runs as | What it does |
 | --- | --- | --- |
-| `02_wsl2_setup.sh` | root | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
-| `03_python_setup.sh` | you | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo confluent-kafka` |
-| `04_docker_compose.sh` | root | Starts the containers and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
-| `05_sample_data_setup.py` | you | Creates `data/timesheets/*.xlsx` from `sample.json` |
-| `06_test_connections.py` | you | Opens a connection to every database a ported demo uses |
+| `pip install` | you, on Windows | The packages the notebooks need. First, because it is the only step that costs nothing when it fails |
+| `02_wsl2_setup.sh` | root, in WSL2 | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
+| `03_python_setup.sh` | you, in WSL2 | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo confluent-kafka` |
+| `04_docker_compose.sh` | root, in WSL2 | Waits for the docker daemon, starts the containers, and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
+| `05_sample_data_setup.py` | you, in WSL2 | Creates `data/timesheets/*.xlsx` from `sample.json` |
+| `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |
+| `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
+
+The first and last rows are not an afterthought. The notebooks run on the Windows Python, not on the
+one in WSL2, so without them the setup can finish green while a notebook still fails on a missing
+package or the missing ODBC driver. And the two runs of `06` do not prove the same thing: the one in
+WSL2 reaches the containers over the WSL2 loopback, while the one on Windows goes through the port
+forwarding that Windows sets up, which is the only path a notebook ever takes. Those forwards do not
+all appear at the same moment, which is why the last step waits for them first — a connection refused
+from Windows usually means the forward is not there yet, not that the database is down.
+
+A failure in the last row does not stop the script before the shell below — the containers stay up so
+that you can look into it, and the script reports the failure afterwards.
 
 Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
 installed for your user account and not for root, which is why the later steps do not use `--user root`.
@@ -269,3 +283,25 @@ down along with all containers.
 ### Restart the docker containers
 
 To restart the containers, simply execute `start_containers.ps1` in a non-elevated PowerShell.
+
+
+### When something cannot connect
+
+Execute `07_check_ports.ps1` in a second PowerShell window, while the other one sits in its WSL2
+shell. For every published port it says whether Windows has a listener for it and whether a connection
+gets through:
+
+```
+1433   SQL Server         CONNECT   listener on ::1 (wslrelay)
+1521   Oracle             CONNECT   listener on ::1 (wslrelay)
+...
+```
+
+`NO LISTENER` means Windows has not published that container port yet. The database is very probably
+running and answering fine inside WSL2 — the forward is what is missing, and the usual answer is to
+wait a little. This is worth knowing because a driver reports it as an error about the *database*: the
+Oracle driver says `DPY-6005: cannot connect to database`, which sounds like Oracle refused, when in
+fact nothing was listening on this side to refuse.
+
+If every port connects and a demo still cannot reach a database, the network is not the problem — run
+`06_test_connections.py`, which asks the drivers rather than the sockets.

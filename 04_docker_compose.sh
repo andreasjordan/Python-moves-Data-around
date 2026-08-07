@@ -4,6 +4,29 @@ set -e
 
 cd ./docker
 
+# The demo password. Docker Compose reads this file for the container environment, and it happens
+# to be valid shell as well, so the waits below can use the same value instead of repeating it.
+# Careful: the CREATE USER statements in the init SQL still have the password as a literal, so
+# changing it here alone is not enough.
+. ./.env
+
+# 02_wsl2_setup.sh starts docker, but 01_setup.ps1 shuts WSL2 down right after that, and
+# start_containers.ps1 runs after a reboot - so in both cases the daemon has to come up again.
+# It usually does, because systemd starts it, but "usually" is a race right after WSL2 boots.
+service docker start >/dev/null 2>&1 || true
+
+echo "Waiting for the docker daemon..."
+
+for _ in $(seq 1 30); do
+    if docker info >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+
+# Once more, this time without hiding the error, so a daemon that never came up says why
+docker info >/dev/null
+
 docker compose up -d
 
 # The steps that follow connect to the databases right away, but a container needs a while for
@@ -18,36 +41,49 @@ docker compose up -d
 # Ask for the database its init script creates *last*. SQL Server used to be asked for TimeSheets,
 # which sqlserver-init.sh creates first, so the wait could return while the four databases behind
 # it were still being created.
+#
+# The first argument is the compose service name, which is also what you would type to look at it.
 
 wait_for() {
-    local name="$1"
+    local service="$1"
     local attempts="$2"
     shift 2
 
-    echo "Waiting for $name to create the demo databases..."
+    echo "Waiting for $service to create the demo databases..."
 
     for _ in $(seq 1 "$attempts"); do
         if "$@" 2>/dev/null | grep -q '^1$'; then
-            echo "$name is ready"
+            echo "$service is ready"
             return 0
         fi
+
+        # A container that has stopped is never going to answer, so say so now rather than
+        # sitting out the whole timeout
+        if [ -z "$(docker compose ps --status running --quiet "$service")" ]; then
+            echo "$service has stopped" >&2
+            break
+        fi
+
         sleep 2
     done
 
-    echo "$name did not become ready in time" >&2
+    # The probe above throws its errors away, so without this a failure here explains nothing -
+    # a container killed by its mem_limit looks exactly like one that is merely slow
+    echo "$service is not ready, these are the last 50 lines of its log:" >&2
+    docker compose logs --tail 50 "$service" >&2
     return 1
 }
 
-wait_for "SQL Server" 150 \
-    docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Passw0rd!' -C -h -1 -W \
+wait_for sqlserver 150 \
+    docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -h -1 -W \
     -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = 'ProjectStatus'"
 
-wait_for "PostgreSQL" 150 \
+wait_for postgres 150 \
     docker compose exec -T postgres psql -U postgres -tAc \
     "SELECT COUNT(*) FROM pg_database WHERE datname = 'stackexchange'"
 
-wait_for "MongoDB" 150 \
-    docker compose exec -T mongo mongosh --quiet -u stackexchange -p 'Passw0rd!' \
+wait_for mongo 150 \
+    docker compose exec -T mongo mongosh --quiet -u stackexchange -p "$PASSWORD" \
     --authenticationDatabase stackexchange stackexchange \
     --eval 'db.runCommand({ ping: 1 }).ok'
 
@@ -56,9 +92,9 @@ wait_for "MongoDB" 150 \
 # that user does not exist yet and sqlplus simply fails.
 oracle_ready() {
     printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nSELECT COUNT(*) FROM user_tables WHERE table_name = '"'"'USERS'"'"';\nEXIT\n' \
-        | docker compose exec -T oracle sqlplus -S 'stackexchange/Passw0rd!@localhost/XEPDB1' \
+        | docker compose exec -T oracle sqlplus -S "stackexchange/$PASSWORD@localhost/XEPDB1" \
         | tr -d '[:space:]'
 }
 
 # Oracle takes far longer to start than the other two, so it gets 15 minutes rather than 5
-wait_for "Oracle" 450 oracle_ready
+wait_for oracle 450 oracle_ready
