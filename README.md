@@ -14,12 +14,15 @@ Currently, I do it "quick and dirty".
 I have installed Python 3.14.6 on my Windows 11 system, without using virtual environments. I will later use and document a cleaner setup.
 
 The packages are installed by `01_setup.ps1`, which also runs `06_test_connections.py` on Windows —
-everything else in the setup happens inside WSL2, but this is the side the notebooks run on. These are
-the packages it installs:
+everything else in the setup happens inside WSL2, but this is the side the notebooks run on. It is the
+same command you would run by hand:
 
 ```
-python -m pip install pandas openpyxl pyodbc "psycopg[binary]" oracledb pymongo confluent-kafka notebook
+python -m pip install -r requirements-windows.txt
 ```
+
+`requirements.txt` is the list both sides share; `requirements-windows.txt` includes it and adds
+`notebook`, which only Windows needs. Nothing is pinned and there is no virtual environment.
 
 I have installed the "SQL Server ODBC driver" using these links:
 - https://learn.microsoft.com/sql/connect/odbc/
@@ -254,9 +257,9 @@ for most of them, and finishes on the Windows side:
 
 | Step | Runs as | What it does |
 | --- | --- | --- |
-| `pip install` | you, on Windows | The packages the notebooks need. First, because it is the only step that costs nothing when it fails |
+| `pip install -r requirements-windows.txt` | you, on Windows | The packages the notebooks need. First, because it is the only step that costs nothing when it fails |
 | `02_wsl2_setup.sh` | root, in WSL2 | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
-| `03_python_setup.sh` | you, in WSL2 | `pip install pandas openpyxl pyodbc psycopg oracledb pymongo confluent-kafka` |
+| `03_python_setup.sh` | you, in WSL2 | `pip install -r requirements.txt` |
 | `04_docker_compose.sh` | root, in WSL2 | Waits for the docker daemon, starts the containers, and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
 | `05_sample_data_setup.py` | you, in WSL2 | Creates the Excel files from `sample.json` and downloads the StackExchange and Geodata samples. A download is skipped when its files are already there; `--force` fetches them again |
 | `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |

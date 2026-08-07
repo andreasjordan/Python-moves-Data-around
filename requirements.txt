@@ -1,0 +1,18 @@
+# The packages that lib/ and the setup steps need, on both Windows and inside WSL2.
+#
+# Nothing is pinned and there is no virtual environment. This is a demo repository that installs
+# into whatever interpreter is already there, and README.md says so in as many words.
+#
+# Installed by 03_python_setup.sh inside WSL2, and by 01_setup.ps1 on Windows through
+# requirements-windows.txt, which adds the one package only that side needs.
+#
+# SQL Server additionally needs the Microsoft ODBC Driver 18, which pip cannot install:
+# 02_wsl2_setup.sh installs it inside WSL2, and on Windows it is a manual step in README.md.
+
+pandas
+openpyxl
+pyodbc
+psycopg[binary]
+oracledb
+pymongo
+confluent-kafka

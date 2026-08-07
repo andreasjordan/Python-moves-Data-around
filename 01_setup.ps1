@@ -5,8 +5,9 @@ $ErrorActionPreference = 'Stop'
 # Python - so this is the side that has to be able to reach the databases in the end.
 # It is first because it is the only step that costs nothing when it fails: a missing "python" or a
 # broken package is found in seconds, rather than after a quarter of an hour of Oracle starting up.
-# "notebook" is the one package WSL2 does not need, because no notebook is ever run there.
-python -m pip install pandas openpyxl pyodbc "psycopg[binary]" oracledb pymongo confluent-kafka notebook
+# requirements-windows.txt is requirements.txt plus "notebook", which is the only package that
+# differs between the two sides - WSL2 never opens a notebook.
+python -m pip install -r "$PSScriptRoot\requirements-windows.txt"
 if ($LASTEXITCODE -ne 0) { throw 'failure installing the Python packages on Windows'}
 
 # Setup WSL2 with the ODBC driver, docker and Python

@@ -292,33 +292,27 @@ should be.
 `pip install` is on the deny list in `.claude/settings.json`, so an agent cannot install anything. The
 owner has to. What an agent **can** and must do, in the same turn as the code that needs it:
 
-1. Add it to the `pip install` line in `03_python_setup.sh` — that is WSL2, where `06` runs.
-2. Add it to the `pip install` line in `01_setup.ps1` — that is Windows, where the notebooks run.
-   **There are two lists and they are not the same file.** Miss this one and the setup still finishes
-   green, because `03` and `06` inside WSL2 never touch the interpreter the demos use.
-3. Add it to the pip block in `README.md`, and to the `03_python_setup.sh` row of the setup table there.
-4. Add it to the runtime dependency list in the `Loading model` section below.
+**Add it to `requirements.txt`. That is the whole procedure.** `03_python_setup.sh` installs that file
+inside WSL2 and `01_setup.ps1` installs it on Windows, so both sides pick it up. Then tell the owner to
+re-run `01_setup.ps1`, which is what actually installs it on both.
 
-Do not wait to be asked for any of these. The owner has had to prompt for it once
-("You have not changed the 03_python_setup.sh - so I wait for that to change?") and it should not
-happen again.
+`requirements-windows.txt` is `-r requirements.txt` plus `notebook`, and a package belongs in it only
+if Windows needs it and WSL2 does not. `notebook` is the only one today, because no notebook is ever
+run inside WSL2. Do not add anything else there without a reason of the same kind.
 
-`notebook` is the one package that is deliberately only in the Windows list — no notebook is ever run
-inside WSL2.
+Do not wait to be asked. The owner has had to prompt for this once ("You have not changed the
+03_python_setup.sh - so I wait for that to change?") and it should not happen again.
 
-The owner no longer has to install anything on Windows by hand: `01_setup.ps1` starts with the Windows
-`pip install` and ends by running `06_test_connections.py` a second time from Windows. Re-running
-`01_setup.ps1` is therefore what closes a dependency gap on both sides.
+**This used to be a four-step ritual across two `pip install` lines, `README.md` and this file, and it
+failed twice** — `pymongo` and then `confluent-kafka` were each added to one side and not the other,
+and each gap was closed only by an unrelated re-run of the setup. Nothing enumerates the packages any
+more except `requirements.txt`: `README.md` prints the `pip install -r` command rather than a list, and
+the `Loading model` section below points here. **Do not reintroduce a second copy of the list
+anywhere**, however convenient it looks — that is the entire reason these files exist.
 
-The Windows `pip install` is the **first** step of the script, before any WSL2 work. It is the only
-step that costs nothing when it fails, and putting it last meant finding a broken Windows interpreter
-after a quarter of an hour of Oracle starting up.
-
-**No known gap today.** Both lists were installed and both runs of `06_test_connections.py` passed on
-a clean install, so WSL2 and Windows are in step. The two gaps that existed before — `pymongo`, then
-`confluent-kafka` — were each closed only by a re-run of the setup, which is the failure mode the two
-lists invite. If you add a package and do not say so, the next person to hit it will see a driver
-import error and have no reason to suspect the setup script.
+The Windows install is the **first** step of `01_setup.ps1`, before any WSL2 work. It is the only step
+that costs nothing when it fails, and putting it last meant finding a broken Windows interpreter after
+a quarter of an hour of Oracle starting up.
 
 ## The sample data on disk
 
@@ -414,6 +408,7 @@ imported.
 | --- | --- |
 | `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. |
 | `07_check_ports.ps1` | **Not part of the setup sequence** — `01_setup.ps1` does not run it. A diagnostic for when the Windows half of the setup cannot reach a database: it prints, per published port, whether Windows has a `wslrelay` listener and whether a connection gets through. Read-only. |
+| `requirements.txt`, `requirements-windows.txt` | The one list of Python packages, and the Windows-only addition to it. Both setup steps install from these; nothing else enumerates the packages. |
 | `start_containers.ps1` | Restarts the Docker containers after a reboot. |
 | `data/<scenario>/` | Sample data per scenario. Generated and downloaded artifacts are gitignored; only `README.md` and `sample.json` (plus the photos) are committed. |
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
@@ -518,12 +513,16 @@ The relative `../lib` means a notebook only resolves it correctly when the worki
 which is what VS Code and Jupyter do. Modules that live next to the notebook (`import_xls_timesheet`)
 are imported directly, without the `sys.path` dance.
 
-Runtime dependencies, all installed with plain `pip` into the system interpreter today:
-`pyodbc`, `psycopg[binary]`, `oracledb`, `pymongo`, `confluent-kafka`, `pandas`, `openpyxl`, `notebook`. SQL Server additionally
-needs the [Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name
-is hard-coded in `connect_sql_instance.py`. Oracle and PostgreSQL need nothing of the kind:
-`oracledb` runs in thin mode and speaks the Oracle protocol itself, so there is no Instant Client. There is no `requirements.txt` and no virtual environment
-yet; `README.md` says so and calls it "quick and dirty". Do not add either one without being asked.
+Runtime dependencies are in `requirements.txt`, which is the only place they are listed — see
+`Adding a dependency` above, and do not copy the list back into this file. They are installed with
+plain `pip` into whatever interpreter is there; there is still **no virtual environment**, which
+`README.md` calls "quick and dirty", and adding one is a separate decision nobody has taken.
+
+Two things pip cannot do, and both matter. SQL Server needs the
+[Microsoft ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/) — the driver name is
+hard-coded in `connect_sql_instance.py`, `02_wsl2_setup.sh` installs it inside WSL2, and on Windows it
+is a manual step in `README.md`. Oracle and PostgreSQL need nothing of the kind: `oracledb` runs in
+thin mode and speaks the Oracle protocol itself, so there is no Instant Client.
 
 ## Deliberate decisions — do not "fix" these
 

@@ -1123,10 +1123,21 @@ demo had no driver at all.
 `06_test_connections.py` there. The same script, both sides — the check is worth nothing on the side
 that never opens a notebook, and it needed no new code to move it to the side that does.
 
-**Consequence for `AGENTS.md`:** adding a dependency now means editing **two** `pip install` lines, in
-two different files and two different languages. That is worse than one list, and it is why a
-`requirements.txt` was raised — see the note there. `notebook` is deliberately only in the Windows
-list.
+**Consequence, and it was not free:** adding a dependency meant editing **two** `pip install` lines, in
+two different files and two different languages, plus two prose lists. That is worse than one list, and
+it had already failed twice before this change existed. It is what finally produced a
+`requirements.txt`:
+
+- `requirements.txt` is the shared list, installed by `03_python_setup.sh` inside WSL2 and by
+  `01_setup.ps1` on Windows.
+- `requirements-windows.txt` is `-r requirements.txt` plus `notebook`. Two files rather than one,
+  because nothing inside WSL2 ever opens a notebook and installing a Jupyter server there to save a
+  file would contradict the reason the two sides differ at all. The `-r` include means the shared list
+  physically cannot drift — which was the whole complaint.
+
+**Rejected:** one file installed on both sides. It is shorter, and it puts a notebook server inside
+WSL2 that nothing runs. Also rejected: pinned versions and a virtual environment, which `README.md`
+deliberately does without and which nobody has asked for.
 
 **What it caught on its very first run, which is the point:** a connection failure to Oracle from
 Windows, seconds after the WSL2 run of the same script had connected to the same database. See below.

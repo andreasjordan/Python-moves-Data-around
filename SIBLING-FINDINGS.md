@@ -386,8 +386,14 @@ only the interpreter under it changes. Install the modules there in the same ste
 stops being a prose block in the README that somebody has to remember.
 
 **Here:** fixed. `01_setup.ps1` starts with a `pip install` on Windows and ends with a second
-`06_test_connections.py` there. The cost is that a new dependency now has to be added to two
-`pip install` lines in two files, which `AGENTS.md` calls out explicitly.
+`06_test_connections.py` there.
+
+Doing it produced a second list of packages, one per side, which is exactly the drift this repository
+had already suffered twice. So the lists went into `requirements.txt`, with a
+`requirements-windows.txt` that is `-r requirements.txt` plus the one package only Windows needs.
+**The equivalent there is a single list of module names** for `Install-Module` — the sibling has no
+`requirements.txt` idiom, but it has the same problem the moment it grows a Windows-side install, and
+one array in one file solves it the same way.
 
 **Two things learned doing it, both of which transfer:**
 
