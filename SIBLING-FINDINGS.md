@@ -3,9 +3,10 @@
 Work for [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around),
 written down on this side. There are two kinds of entry:
 
-- **Findings (1–8, 11–13)** — things found here that have to be fixed there. Nothing in them is a
-  Python problem. 1–8 came out of porting the demos; 11–13 came out of reviewing the setup chain, so
-  they are all in `01_setup.ps1`, `04_docker_compose.sh` and `docker/`.
+- **Findings (1–8, 11–14)** — things found here that have to be fixed there. Nothing in them is a
+  Python problem. 1–8 came out of porting the demos; 11–14 came out of reviewing the setup chain, so
+  they are all in `01_setup.ps1`, `04_docker_compose.sh` and `docker/`. **14 is the one to do first**
+  — it is what lets both repositories live in one WSL2 installation, and it makes 4 and 13 urgent.
 - **Things to build there (9–10)** — where this repository has gone first and the PowerShell one is
   meant to follow. These are not defects; they are a plan.
 
@@ -432,3 +433,101 @@ print `docker compose logs --tail 50` for that service on the failure path.
 
 **Here:** fixed, all three. `wait_for` also takes the compose service name rather than a display name
 now, so the failure message names what you would type next.
+
+---
+
+## 14. Both repositories cannot share one WSL2 installation
+
+**Where:** `01_setup.ps1`, `start_containers.ps1`, `04_docker_compose.sh`, `02_wsl2_setup.sh`
+
+**What:** the two repositories were always meant to live in the same WSL2 installation — neither one
+passes `-d` to `wsl`, so both use the default distribution. But neither setup can be run while the other
+repository's containers exist, and `01_setup.ps1` ends by entering a shell that keeps its own containers
+alive, so there is no state in which both are merely installed.
+
+**Effect, and it is worse than a port conflict.** Both stacks publish the same ports, use the same
+password and create the same database names. A bind error would at least be loud. Instead the other
+stack answers every connection, so:
+
+- `docker compose up -d` fails on the first bound port, but this `04` has **no `set -e`** and ends on
+  `cd ..`, so the script exits 0.
+- `01_setup.ps1` carries on, and `06_test_connections.ps1` connects to `localhost` as `TimeSheets` /
+  `Passw0rd!` — **which succeeds, against the other repository's volumes.** The setup reports green
+  having started nothing of its own.
+
+One thing accidentally catches this today: `05_sample_data_setup.ps1` uploads to MinIO on 9000, which
+the Python stack does not have, so it fails there first. **That guard disappears with finding 9.**
+
+**Fix, in four parts. All four are done here — copy them.**
+
+**1. Split build from run.** `01_setup.ps1` stops the containers instead of entering a shell:
+
+```powershell
+# Stop the containers again
+# This script sets the machine up, it does not start a demo. The volumes exist now - Oracle's first
+# start is most of the time this script takes - so from here on, starting the containers is a minute
+# rather than a quarter of an hour.
+wsl --cd "$PSScriptRoot\docker" --user root docker compose stop
+```
+
+It is a `stop` and not simply an exit: without it the containers are not left running, they are killed
+when WSL2 idles out, and SQL Server and Oracle do crash recovery on the next start.
+
+**2. Rename `start_containers.ps1` to `start_demo.ps1`.** It is no longer only "restart after a reboot";
+it is the thing you run before a talk and when switching repositories. The name was changed here for
+that reason, and keeping the two repositories' script names identical is worth more than the rename
+costs.
+
+**3. Stop the other stack in `04_docker_compose.sh`**, before `docker compose up -d`, so that both
+`01_setup.ps1` and `start_demo.ps1` get it:
+
+```bash
+SIBLING_PROJECT=python-moves-data-around
+
+sibling_containers="$(docker ps --quiet --filter "label=com.docker.compose.project=$SIBLING_PROJECT")"
+if [ -n "$sibling_containers" ]; then
+    echo "Stopping the containers of $SIBLING_PROJECT - both repositories use the same ports"
+    docker stop $sibling_containers >/dev/null
+fi
+```
+
+The filter is the label compose sets itself, so nothing here needs a file from the other repository —
+which matters, because a clone of one does not have the other. And it is `docker stop`, never `down`:
+the other side's volumes survive, so switching back costs a minute rather than another Oracle start.
+
+**4. `set -e` in `04_docker_compose.sh`, and in `02_wsl2_setup.sh`.** Without it in `04`, part 3 is
+decoration — a failed `docker compose up` is invisible either way. `02` has the same shape: one long
+`&& \` chain with no `set -e`, so a failure in an early block silently skips everything after it. That
+is the same fix this repository made in its own `02`.
+
+**This makes findings 4 and 13 urgent rather than latent.** Once both repositories are installed, a `04`
+that returns before the databases exist no longer produces a puzzling connection error — it produces a
+successful run against the wrong volumes.
+
+**Two consequences that are not defects, but should be written into the README there as they were
+here:**
+
+- Installing both repositories pays for Oracle's first start twice, because the volumes are per compose
+  project. Unavoidable without sharing one stack, which would mean sharing the data.
+- Switching restarts the PhotoService container, which truncates its tables and restarts its
+  twenty-minute schedule — so the PhotoService sections are empty for twenty minutes after every
+  switch. Put them last on each side and switch once. **This schedule is going to be shortened to
+  seconds on the Python side**; when it is, do the same here, because it is the sibling's schedule that
+  is being changed.
+
+**Here:** done and run. `01_setup.ps1` ends with the stop, `start_containers.ps1` is now
+`start_demo.ps1`, and `04_docker_compose.sh` stops the `powershell-moves-data-around` project first.
+`02` and `04` already had `set -e`.
+
+**The one thing still unproven is the switch itself**, and it cannot be proven from this side alone: the
+sibling-stop block in `04` has never had anything to stop, because these four parts do not exist there
+yet. Doing this work is therefore also what tests the half that is already here — after applying it,
+switch back and forth once in each direction and check that each `04` reports stopping the other
+project.
+
+**`02_wsl2_setup.sh` needs nothing else.** Checked block by block on both sides: the Microsoft `.deb`
+re-installs, the docker GPG key is written with `--yes`, the repo list is overwritten,
+`update-alternatives --set` and `service docker start` are idempotent, and an `apt-get install -y` of an
+installed package returns in seconds. Running the second repository's setup into the same distribution
+costs a couple of minutes of `apt -y upgrade`, not twenty. Do not add guard clauses around those blocks
+— they would cost readability in the most-read setup file for nothing.

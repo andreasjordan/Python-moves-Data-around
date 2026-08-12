@@ -80,7 +80,7 @@ Working today:
 | --- | --- |
 | `01_setup.ps1` … `06_test_connections.py` | The setup steps. `01_setup.ps1` runs all of them. |
 | `07_check_ports.ps1` | Not a setup step. Checks whether Windows can reach the container ports, for when something cannot connect. |
-| `start_containers.ps1` | Restarts the containers after a reboot. |
+| `start_demo.ps1` | Starts the containers and keeps them running. This is what you run before a demo. |
 | `data/` | One directory per scenario for the sample data. The generated and downloaded files are not part of the repository. |
 | `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
 | `docker/` | The compose file, the database init scripts and the PhotoService application. |
@@ -210,8 +210,42 @@ is part of the repository. `docker/.env` is where it is configured for the conta
 `04_docker_compose.sh` reads it from there — but the `CREATE USER` statements in the init SQL still
 have it as a literal, so changing `docker/.env` alone is not enough to change it everywhere.
 
-Both repositories use the same host ports, so only one of them can have its containers running at a
-time.
+
+### Sharing one WSL2 installation with the sibling repository
+
+Both repositories are meant to live in the same WSL2 installation. Neither one names a distribution, so
+both use the default — install Ubuntu once, then run `01_setup.ps1` in each repository. The second run
+finds the ODBC driver, docker and 7-Zip already there and only does its own half. Expect Oracle's first
+start twice, though, once per repository: the volumes belong to the stack, not to the machine.
+
+`01_setup.ps1` **sets the machine up, it does not start a demo.** It stops the containers again at the
+end, which is what makes running it in both repositories possible: the other setup would otherwise find
+these containers holding every port it wants.
+
+**Coming back to this repository is always safe; going the other way is not, yet.** The sibling
+repository has not had this change — its setup still finishes by keeping its own containers running, and
+its `04_docker_compose.sh` does not stop anyone else's. So stop this repository's containers by hand
+before you run anything over there, from this directory:
+
+```
+wsl --cd "$PWD\docker" --user root docker compose stop
+```
+
+To demo, run `start_demo.ps1`. Both repositories publish the same ports, so only one stack can run at a
+time, and `start_demo.ps1` stops the other one for you before starting its own. That is a stop and not
+a `down`, so the volumes on both sides survive — switching back and forth costs a minute, not another
+Oracle start.
+
+To see which stack is currently running:
+
+```
+wsl --user root docker compose ls
+```
+
+**One thing to plan the running order of a session around.** Switching restarts the PhotoService
+container, which truncates its tables and restarts its twenty-minute schedule — so demos 4 and 6 are
+empty for twenty minutes after every switch, on whichever side you switch to. Until that schedule is
+shortened, put those two demos last on each side and switch only once.
 
 
 ### Install WSL2
@@ -264,6 +298,7 @@ for most of them, and finishes on the Windows side:
 | `05_sample_data_setup.py` | you, in WSL2 | Creates the Excel files from `sample.json` and downloads the StackExchange and Geodata samples. A download is skipped when its files are already there; `--force` fetches them again |
 | `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |
 | `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
+| `docker compose stop` | root, in WSL2 | Stops the containers again. The setup is finished; `start_demo.ps1` is what starts a demo |
 
 The first and last rows are not an afterthought. The notebooks run on the Windows Python, not on the
 one in WSL2, so without them the setup can finish green while a notebook still fails on a missing
@@ -273,24 +308,32 @@ forwarding that Windows sets up, which is the only path a notebook ever takes. T
 all appear at the same moment, which is why the last step waits for them first — a connection refused
 from Windows usually means the forward is not there yet, not that the database is down.
 
-A failure in the last row does not stop the script before the shell below — the containers stay up so
-that you can look into it, and the script reports the failure afterwards.
+A failure in the connection test from Windows does not stop the script before the stop below — the
+script reports the failure once the containers are down, and `start_demo.ps1` brings them back in a
+minute if you want to look into it.
 
 Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
 installed for your user account and not for root, which is why the later steps do not use `--user root`.
 
-At the end, the script enters WSL2 to keep all Docker containers running. If you exit, WSL2 will shut
-down along with all containers.
+The whole run takes about half an hour, nearly all of it Oracle starting for the first time. That is
+the price of the volumes, and it is paid once per repository — see
+[Sharing one WSL2 installation with the sibling repository](#sharing-one-wsl2-installation-with-the-sibling-repository)
+if you are installing both.
 
 
-### Restart the docker containers
+### Start the demo
 
-To restart the containers, simply execute `start_containers.ps1` in a non-elevated PowerShell.
+Execute `start_demo.ps1` in a non-elevated PowerShell. It starts the containers, waits until the
+databases answer, and then sits in a WSL2 shell. **If you exit that shell, WSL2 shuts down and takes
+the containers with it**, so leave the window open for as long as you are demoing.
 
-This keeps all data. It is a restart, not a reset — the volumes survive, so every table a demo wrote
-last time is still there. One thing to expect in `docker compose logs sqlserver` afterwards: its init
-script runs on every start and its `CREATE LOGIN` / `CREATE DATABASE` statements are unconditional, so
-the log fills with "already exists" errors. They are harmless and the databases are fine.
+This keeps all data. It is a start, not a reset — the volumes survive, so every table a demo wrote last
+time is still there. One thing to expect in `docker compose logs sqlserver` afterwards: its init script
+runs on every start and its `CREATE LOGIN` / `CREATE DATABASE` statements are unconditional, so the log
+fills with "already exists" errors. They are harmless and the databases are fine.
+
+Run this after a reboot too, and whenever you are switching back from the sibling repository — it stops
+that repository's containers first, because both publish the same ports.
 
 
 ### Reset the containers
@@ -299,8 +342,8 @@ A demo leaves data behind, and the next run of the same demo may not like it. Th
 reset, and the cheap one is usually the one you want.
 
 Both commands below are run from the repository directory, and both need the containers to be up —
-they talk to the docker daemon inside WSL2. If WSL2 has been shut down, run `start_containers.ps1`
-first, because that is what starts the daemon.
+they talk to the docker daemon inside WSL2. If WSL2 has been shut down, run `start_demo.ps1` first,
+because that is what starts the daemon.
 
 **Just the PhotoService application.** This is what demos 4 and 6 need, and it costs seconds:
 
@@ -321,7 +364,7 @@ demo's own output, and the notebooks clean up after themselves.
 
 ```
 wsl --cd "$PWD\docker" --user root docker compose down -v
-.\start_containers.ps1
+.\start_demo.ps1
 ```
 
 `-v` is the whole point — it removes the named volumes, and that is what actually deletes the data.

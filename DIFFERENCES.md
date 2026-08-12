@@ -1077,7 +1077,7 @@ The first argument became the **compose service name** rather than a display nam
 exactly what you would type next.
 
 **And the daemon itself is waited for.** `02_wsl2_setup.sh` starts docker, but `01_setup.ps1` runs
-`wsl --shutdown` immediately afterwards, and `start_containers.ps1` runs after a reboot. In both cases
+`wsl --shutdown` immediately afterwards, and `start_demo.ps1` runs after a reboot. In both cases
 the daemon comes back only because systemd starts it, which is a race against `docker compose up`
 running seconds after WSL2 boots. `04` now runs `service docker start` and polls `docker info` before
 it does anything else.

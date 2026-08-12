@@ -9,8 +9,8 @@ $ErrorActionPreference = 'Stop'
 # seen with four forwards up and the fifth minutes late, while every container was running and
 # answering inside WSL2 the whole time.
 #
-# Run it from a second PowerShell window while 01_setup.ps1 or start_containers.ps1 sits in its
-# WSL2 shell.
+# Run it from a second PowerShell window while start_demo.ps1 sits in its WSL2 shell, or while
+# 01_setup.ps1 is between its two connection tests.
 #
 # NO LISTENER means the forward is missing and the database is very probably fine - wait, or restart
 # WSL2. If every port connects and a demo still cannot reach a database, then the network is fine and

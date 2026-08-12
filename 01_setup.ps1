@@ -54,17 +54,28 @@ foreach ($port in 1433, 1521, 5432, 27017, 19092) {
 # Test connections from Windows
 # The same script again, from the side that runs the demos - the notebooks only ever take this path.
 #
-# A failure here must not throw. Everything above this line has already been built, and Oracle alone
-# is a quarter of an hour of it - but the last line of this script is what keeps the containers
-# running, so a throw here would take all of it down. The failure is remembered instead, the shell
-# below still opens, and the script fails once it returns.
+# A failure here is remembered rather than thrown, so that the stop below still runs. Everything
+# above this line has already been built, and there is no reason to leave the containers to be
+# killed by the WSL2 idle timeout just because a connection test failed.
 python "$PSScriptRoot\06_test_connections.py"
 $windowsTestFailed = $LASTEXITCODE -ne 0
 if ($windowsTestFailed) {
-    Write-Warning 'failure in 06_test_connections.py on Windows - the containers are left running so you can look into it'
+    Write-Warning 'failure in 06_test_connections.py on Windows - run start_demo.ps1 and then 07_check_ports.ps1 to look into it'
 }
 
-# Run WSL2 to keep docker containers running
-wsl --cd $PSScriptRoot --user root
+# Stop the containers again
+# This script sets the machine up, it does not start a demo. The volumes exist now - Oracle's first
+# start is most of the time this script takes - so from here on, starting the containers is a minute
+# rather than a quarter of an hour. start_demo.ps1 is what you run when you want to demo.
+#
+# Stopping here is what lets this script be run for both repositories one after the other: the
+# sibling's setup would otherwise find these containers holding every port it wants.
+#
+# And it is a stop, not an exit: without it the containers are not left running, they are killed
+# when WSL2 idles out, and SQL Server and Oracle do crash recovery on the next start.
+wsl --cd "$PSScriptRoot\docker" --user root docker compose stop
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning 'failure stopping the containers - they are still running and will be in the way of the sibling repository'
+}
 
 if ($windowsTestFailed) { throw 'failure in 06_test_connections.py on Windows'}

@@ -54,7 +54,7 @@ under Kafka. Stepped through end to end, outputs committed.
 | `lib/` | Twenty-two functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, `connect`, `write` and `read` for `mdb`, and two `connect`s plus `write` and `read` for `kfk`. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
 | `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
-| The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. |
+| The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. Re-run after the build/run split below, and the `docker compose stop` that now ends `01_setup.ps1` works. **What has not been exercised is the two-repository flow itself** — the sibling-stop block in `04` has never had anything to stop, because the sibling has not had finding 14 applied yet. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. `docker compose restart photoservice` is the cheap reset for those two demos — it truncates its own PostgreSQL tables, drops its MongoDB collection, and restarts the twenty-minute clock. See "Reset the containers" in `README.md`; a full `down -v` is almost never what is wanted here. |
 | `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
@@ -115,7 +115,7 @@ Three things around those waits are also load-bearing, and each one exists becau
 prevents is silent or misleading:
 
 - **It waits for the docker daemon first.** `02` starts it, but `01_setup.ps1` then runs
-  `wsl --shutdown`, and `start_containers.ps1` runs after a reboot — so in both cases the daemon has to
+  `wsl --shutdown`, and `start_demo.ps1` runs after a reboot — so in both cases the daemon has to
   come up again, and it only does because systemd starts it. That is a race right after WSL2 boots.
 - **`wait_for` gives up when the container has stopped**, instead of sitting out the full 5 or 15
   minutes. A container killed by its `mem_limit` otherwise looks exactly like one that is merely slow.
@@ -126,11 +126,45 @@ prevents is silent or misleading:
 `04` also sources `docker/.env`, so the passwords in the probes are not a fourth copy of the literal.
 That file is valid shell as well as a Compose env file, which is why this works.
 
-**Nothing after `04` may abort `01_setup.ps1`**, and this was learned the expensive way. The last line
-of that script is the `wsl` shell that keeps the containers alive; a `throw` above it skips that line,
-WSL2 idles out, and every container built in the preceding twenty minutes is gone — Oracle alone is
-most of that time. The Windows `06` therefore records its failure in a variable, lets the shell open,
-and throws only after it returns. Any check added after the containers exist has to do the same.
+### `01_setup.ps1` builds, `start_demo.ps1` runs
+
+The two are deliberately separate, and the split is what lets **one WSL2 installation serve both
+repositories**. Neither repository names a distribution — no `wsl` call anywhere passes `-d` — so both
+have always used the default one. What was missing was that the second setup to run had nowhere to put
+its containers.
+
+- `01_setup.ps1` ends with `docker compose stop`. It builds the volumes, proves the connections from
+  both sides, and leaves nothing running. So it can be run in this repository and then in the sibling,
+  in either order.
+- `start_demo.ps1` is what starts a demo, holds the WSL2 shell open, and is what you run after a reboot
+  or when switching repositories.
+- `04_docker_compose.sh` **stops the sibling project's containers** before `docker compose up`, found by
+  the `com.docker.compose.project` label so that no file from the other repository is needed. Both
+  entry points call `04`, so both get it.
+
+**Why stopping the other stack is not optional, and why a port conflict is the least of it.** Both
+repositories publish the same ports *and* use the same password *and* create the same database names.
+A bind error would at least be loud; instead the other stack answers every connection, so a run that
+starts while the sibling's containers are up succeeds against the wrong volumes. On the sibling side
+this is worse still — its `04` has no `set -e` and ends on `cd ..`, so a failed `docker compose up`
+exits 0. Recorded as finding 14 in `SIBLING-FINDINGS.md`.
+
+It is `docker stop`, never `down`: the other repository's volumes survive, so switching costs a minute
+rather than another Oracle start.
+
+**Two costs of the split, both known and neither worth fixing:** installing both repositories pays for
+Oracle's first start twice, because the volumes are per compose project; and switching restarts the
+PhotoService container, which truncates its tables and restarts its twenty-minute clock, so demos 4
+and 6 are empty for twenty minutes after every switch. The second one is on the list to fix by making
+the application's schedule seconds rather than minutes — until then the answer is to put demos 4 and 6
+last on each side and switch once.
+
+**Nothing after `04` should abort `01_setup.ps1`.** This used to be the most expensive rule in the
+repository: the last line was the `wsl` shell that kept the containers alive, so a `throw` above it
+idled WSL2 out and threw away twenty minutes of container startup. **The split defused that** — the
+volumes now survive either way, and a `throw` only skips a tidy shutdown. The Windows `06` still
+records its failure in a variable and throws after the stop, and anything added there should do the
+same, but it is housekeeping now rather than a trap.
 
 ### The port forwarding arrives late, and it does not arrive for all ports at once
 
@@ -168,7 +202,7 @@ Two things follow for anything added here:
 - **`07_check_ports.ps1` is the diagnostic that settled it**, and it is in the repository for that
   reason. For each published port it prints whether `Get-NetTCPConnection -State Listen` finds a
   listener and whether a TCP connect succeeds. Run it from a second PowerShell window while
-  `01_setup.ps1` or `start_containers.ps1` sits in its shell. It is safe for an agent to run: it opens
+  `start_demo.ps1` sits in its shell. It is safe for an agent to run: it opens
   and closes TCP connections and starts nothing.
 
 ## What is left to port
@@ -399,17 +433,17 @@ came back empty, and read the cells whose numbers the narration quotes. That las
 contradiction twice — a markdown cell asserting a count that the cell above it no longer printed.
 
 Scripts that *are* meant to run: the numbered scripts in the repository root (subject to the table
-above), `07_check_ports.ps1` and `start_containers.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
+above), `07_check_ports.ps1` and `start_demo.ps1`. `demo/import_xls_timesheet.py` only defines a function and is
 imported.
 
 ## Repository map
 
 | Path | What it is |
 | --- | --- |
-| `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. |
+| `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. It **builds only** — it stops the containers again at the end, so it can be run for both repositories in turn. |
 | `07_check_ports.ps1` | **Not part of the setup sequence** — `01_setup.ps1` does not run it. A diagnostic for when the Windows half of the setup cannot reach a database: it prints, per published port, whether Windows has a `wslrelay` listener and whether a connection gets through. Read-only. |
 | `requirements.txt`, `requirements-windows.txt` | The one list of Python packages, and the Windows-only addition to it. Both setup steps install from these; nothing else enumerates the packages. |
-| `start_containers.ps1` | Restarts the Docker containers after a reboot. |
+| `start_demo.ps1` | Starts the demo: stops the sibling repository's containers, starts this repository's, and holds WSL2 open. `01_setup.ps1` builds, this runs. |
 | `data/<scenario>/` | Sample data per scenario. Generated and downloaded artifacts are gitignored; only `README.md` and `sample.json` (plus the photos) are committed. |
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
 | `docker/` | `docker-compose.yaml`, the per-scenario database init SQL/sh/js, and the PhotoService application. |
@@ -544,7 +578,7 @@ thin mode and speaks the Oracle protocol itself, so there is no Instant Client.
 
 The containers are probably not running, and starting them costs a WSL2 boot and several minutes.
 
-**Do not run** `wsl`, `docker compose up`/`down`, `01_setup.ps1`, `start_containers.ps1`, or any
+**Do not run** `wsl`, `docker compose up`/`down`, `01_setup.ps1`, `start_demo.ps1`, or any
 notebook in `demo/`. **`docker compose down -v` in particular is a twenty-minute mistake** — the `-v`
 deletes the volumes, and getting them back means another Oracle start. Recommend it, never run it.
 `07_check_ports.ps1` **is** safe to run — it only opens and closes TCP connections from Windows, and it

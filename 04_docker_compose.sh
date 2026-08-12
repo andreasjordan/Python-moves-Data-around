@@ -11,7 +11,7 @@ cd ./docker
 . ./.env
 
 # 02_wsl2_setup.sh starts docker, but 01_setup.ps1 shuts WSL2 down right after that, and
-# start_containers.ps1 runs after a reboot - so in both cases the daemon has to come up again.
+# start_demo.ps1 runs after a reboot - so in both cases the daemon has to come up again.
 # It usually does, because systemd starts it, but "usually" is a race right after WSL2 boots.
 service docker start >/dev/null 2>&1 || true
 
@@ -26,6 +26,26 @@ done
 
 # Once more, this time without hiding the error, so a daemon that never came up says why
 docker info >/dev/null
+
+# Stop the sibling repository's containers, if they are running
+#
+# Both repositories publish the same ports, so only one stack runs at a time. That much would show
+# up as a bind error - but the passwords and the database names are the same too, so the other
+# stack answers every connection a demo or 06_test_connections.py makes. A run that starts while
+# the sibling's containers are up therefore does not fail, it succeeds against the wrong volumes.
+#
+# The filter is the label docker compose sets itself, so nothing here needs a file from the other
+# repository - which matters, because a clone of this one does not have it.
+#
+# "stop" and not "down": the sibling's volumes survive, so switching back is one start_demo.ps1
+# and none of its data is gone.
+SIBLING_PROJECT=powershell-moves-data-around
+
+sibling_containers="$(docker ps --quiet --filter "label=com.docker.compose.project=$SIBLING_PROJECT")"
+if [ -n "$sibling_containers" ]; then
+    echo "Stopping the containers of $SIBLING_PROJECT - both repositories use the same ports"
+    docker stop $sibling_containers >/dev/null
+fi
 
 docker compose up -d
 
