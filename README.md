@@ -197,8 +197,8 @@ The exact image versions are pinned in `docker/docker-compose.yaml`.
 
 The PhotoService container is the shop that keeps inventing customers and orders. It is the source of
 the data that the PhotoService and event streaming demos move, so both of those need it running — and
-it staggers its work over the first twenty minutes, so give it a little time before expecting anything
-to be there.
+it staggers its work over the first two minutes: the first order at 60 seconds, the first payment at
+90, the first shipment at 120. Give it that couple of minutes before expecting anything to be there.
 
 Two of the containers have a web interface:
 
@@ -243,10 +243,10 @@ To see which stack is currently running:
 wsl --user root docker compose ls
 ```
 
-**One thing to plan the running order of a session around.** Switching restarts the PhotoService
-container, which truncates its tables and restarts its twenty-minute schedule — so demos 4 and 6 are
-empty for twenty minutes after every switch, on whichever side you switch to. Until that schedule is
-shortened, put those two demos last on each side and switch only once.
+**One small thing about switching.** It restarts the PhotoService container, which truncates its tables
+and restarts its schedule — so demos 4 and 6 are empty for the first two minutes after every switch, on
+whichever side you switch to. That used to be twenty minutes and used to decide the running order of a
+whole session; now it is roughly as long as the containers take to come up anyway.
 
 
 ### Install WSL2
@@ -360,8 +360,8 @@ wsl --cd "$PWD\docker" --user root docker compose restart photoservice
 ```
 
 The application truncates its own PostgreSQL tables and drops its MongoDB collection when it starts, so
-this puts it back to nothing. It also restarts the clock: the first order is scheduled ten minutes
-later, the first payment at fifteen, the first shipment at twenty. **Give it twenty minutes before
+this puts it back to nothing. It also restarts the clock: the first order is scheduled 60 seconds
+later, the first payment at 90, the first shipment at 120. **Give it those two minutes before
 expecting demos 4 and 6 to be interesting** — inside that window the tables and the Kafka topic are
 nearly empty, which looks broken and is not.
 

@@ -509,11 +509,12 @@ here:**
 
 - Installing both repositories pays for Oracle's first start twice, because the volumes are per compose
   project. Unavoidable without sharing one stack, which would mean sharing the data.
-- Switching restarts the PhotoService container, which truncates its tables and restarts its
-  twenty-minute schedule — so the PhotoService sections are empty for twenty minutes after every
-  switch. Put them last on each side and switch once. **This schedule is going to be shortened to
-  seconds on the Python side**; when it is, do the same here, because it is the sibling's schedule that
-  is being changed.
+- Switching restarts the PhotoService container, which truncates its tables and restarts its schedule —
+  so the PhotoService sections are empty for a short while after every switch. That was twenty minutes
+  when this was written, and the advice here used to be to put those demos last and switch only once.
+  **Both applications were shortened by ten on 2026-08-15** — first order at 60 s, payment at 90,
+  shipment at 120, a new customer every 6 s — so the wait is now about as long as the containers take
+  to come up, and the advice is gone. See entry 17 in the sibling's `SIBLING-FINDINGS.md`.
 
 **Here:** done and run. `01_setup.ps1` ends with the stop, `start_containers.ps1` is now
 `start_demo.ps1`, and `04_docker_compose.sh` stops the `powershell-moves-data-around` project first.

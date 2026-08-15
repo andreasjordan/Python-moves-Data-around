@@ -50,13 +50,13 @@ under Kafka. Stepped through end to end, outputs committed.
 | `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
 | `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
 | `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end, outputs committed. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
-| `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. Stepped through end to end, outputs committed. Not a port — see above. **The counts are not reproducible** — the shop keeps producing, so the topic is bigger on every run. **Needs the application to have been running for twenty minutes**, and the notebook says so at the top: the app truncates its tables at startup and keeps the sibling's schedule, so before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. |
+| `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. Stepped through end to end, outputs committed. Not a port — see above. **The counts are not reproducible** — the shop keeps producing, so the topic is bigger on every run. **Needs the application to have been running for about two minutes**, and the notebook says so at the top: the app truncates its tables at startup, so before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. **The notebook's own text still says twenty minutes** — it was written against the old schedule and has not been re-run since, so that is a markdown cell to fix on the next pass through it. |
 | `lib/` | Twenty-two functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, `connect`, `write` and `read` for `mdb`, and two `connect`s plus `write` and `read` for `kfk`. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
 | `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
 | The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. Re-run after the build/run split below, and the `docker compose stop` that now ends `01_setup.ps1` works. **What has not been exercised is the two-repository flow itself** — the sibling-stop block in `04` has never had anything to stop, because the sibling has not had finding 14 applied yet. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
-| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. `docker compose restart photoservice` is the cheap reset for those two demos — it truncates its own PostgreSQL tables, drops its MongoDB collection, and restarts the twenty-minute clock. See "Reset the containers" in `README.md`; a full `down -v` is almost never what is wanted here. |
+| `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. `docker compose restart photoservice` is the cheap reset for those two demos — it truncates its own PostgreSQL tables, drops its MongoDB collection, and restarts the two-minute clock. Keep that schedule in step with the sibling's `photoservice-app.ps1`. See "Reset the containers" in `README.md`; a full `down -v` is almost never what is wanted here. |
 | `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
 | `05_sample_data_setup.py` | Timesheets, the StackExchange download, the Geodata downloads and the ProjectStatus Excel. PhotoService needs no block — its photos are committed. The sibling's upload of those files to MinIO has no counterpart and will not get one. |
 | `06_test_connections.py` | Timesheets on SQL Server, StackExchange on SQL Server, Oracle, PostgreSQL and MongoDB, Geodata on SQL Server, Oracle and PostgreSQL, PhotoService on SQL Server, PostgreSQL and MongoDB, ProjectStatus on SQL Server. One block per scenario and per provider. **It is run twice by `01_setup.ps1`** — once inside WSL2 and once on Windows, because the notebooks run on the Windows interpreter and nothing else checks that one. Both runs pass on a clean install. |
@@ -158,12 +158,14 @@ exits 0. Recorded as finding 14 in `SIBLING-FINDINGS.md`.
 It is `docker stop`, never `down`: the other repository's volumes survive, so switching costs a minute
 rather than another Oracle start.
 
-**Two costs of the split, both known and neither worth fixing:** installing both repositories pays for
-Oracle's first start twice, because the volumes are per compose project; and switching restarts the
-PhotoService container, which truncates its tables and restarts its twenty-minute clock, so demos 4
-and 6 are empty for twenty minutes after every switch. The second one is on the list to fix by making
-the application's schedule seconds rather than minutes — until then the answer is to put demos 4 and 6
-last on each side and switch once.
+**One cost of the split, known and not worth fixing:** installing both repositories pays for Oracle's
+first start twice, because the volumes are per compose project.
+
+Switching also restarts the PhotoService container, which truncates its tables and restarts its clock,
+so demos 4 and 6 are empty for the first two minutes afterwards. That clock used to be twenty minutes,
+which is what made switching expensive and what the old advice — put demos 4 and 6 last on each side
+and switch only once — existed to work around. It was shortened on 2026-08-15 and the advice went with
+it.
 
 **Nothing after `04` should abort `01_setup.ps1`.** This used to be the most expensive rule in the
 repository: the last line was the `wsl` shell that kept the containers alive, so a `throw` above it
@@ -270,13 +272,13 @@ impossible. The three `get_*_data_reader` functions deliberately got nothing.
 **The application is a container, and it is not optional.** `docker/photoservice-app.py` replaces the
 sibling's `photoservice-app.ps1`, which was still PowerShell here and could never have run. It is the
 source of every customer and order the second half of the notebook transfers, so **if that container is
-not running, those cells have nothing to find.** It also needs a few minutes of runtime before the
-notebook is interesting: the first order is scheduled ten minutes after it starts, the first payment at
-fifteen, the first shipment at twenty — the sibling's schedule, kept.
+not running, those cells have nothing to find.** It also needs a couple of minutes of runtime before the
+notebook is interesting: the first order is scheduled 60 seconds after it starts, the first payment at
+90, the first shipment at 120 — the sibling's schedule, kept, and shortened on both sides at once.
 
 That schedule governs demo 6 as well, and more strictly, because that one reads the events rather than
-the tables. Both demos want the container to have been up for twenty minutes; restarting it resets the
-clock **and** truncates the tables.
+the tables. Both demos want the container to have been up for about two minutes; restarting it resets
+the clock **and** truncates the tables.
 
 **Left out on purpose, and both follow from decisions already made:**
 

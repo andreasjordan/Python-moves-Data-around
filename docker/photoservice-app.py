@@ -148,27 +148,40 @@ photos = invoke_pg_query(
     enable_exception=True
 )
 
+# The schedule, ten times faster than it used to be
+#
+# What demos 4 and 6 teach is the order - a customer, then an order, then a payment, then a shipment -
+# and nothing in that story needed the gaps to be ten, fifteen and twenty minutes. They were, and it
+# made both demos empty for twenty minutes after every container start and after every switch between
+# the two repositories. Demo 6 felt it worse, because it reads the events rather than the tables.
+#
+# The customer interval is scaled with the offsets and not left alone, because the proportion is
+# what matters: at 6 seconds each, ten customers exist by the time the first order is placed, which
+# is exactly what 60 seconds gave against a ten-minute offset. The one-second intervals stay as they
+# are - they cannot be scaled down meaningfully, and they were already the fast end of this.
+#
+# Keep this schedule in step with docker/photoservice-app.ps1 in the sibling repository.
 print("Setting up state objects")
 new_customer = {
-    "delay_sec": 60,
+    "delay_sec": 6,
     "next_run": datetime.now(),
     "next_id": 1
 }
 
 new_order = {
     "delay_sec": 1,
-    "next_run": datetime.now() + timedelta(minutes=10),
+    "next_run": datetime.now() + timedelta(seconds=60),
     "next_id": 1
 }
 
 new_payment = {
     "delay_sec": 1,
-    "next_run": datetime.now() + timedelta(minutes=15)
+    "next_run": datetime.now() + timedelta(seconds=90)
 }
 
 new_shipment = {
     "delay_sec": 1,
-    "next_run": datetime.now() + timedelta(minutes=20)
+    "next_run": datetime.now() + timedelta(seconds=120)
 }
 
 print("Starting Loop")
