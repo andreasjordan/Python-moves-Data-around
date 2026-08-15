@@ -128,9 +128,10 @@ batching is on screen rather than hidden behind a .NET class.
 
 ### Loading into PostgreSQL: COPY
 
-**The sibling:** `Write-PgTable` fills a `DataTable` and lets an `NpgsqlDataAdapter` with an
-`NpgsqlCommandBuilder` generate the `INSERT` statements. It does **not** use a binary import or
-`COPY`. Making that faster is an open item in the sibling repository.
+**The sibling:** `Write-PgTable` **also uses `COPY`**, through Npgsql's `BeginTextImport`, since
+2026-08-15. Until then it filled a `DataTable` and let an `NpgsqlDataAdapter` with an
+`NpgsqlCommandBuilder` generate the `INSERT` statements, and this section recorded that as the
+largest remaining divergence. It was entry 3 of `SIBLING-FINDINGS.md`, and it is closed.
 
 **Python:** psycopg exposes `COPY` directly through `cursor.copy()`, and the text format takes the
 values as text and lets PostgreSQL parse them into the column types.
@@ -152,9 +153,21 @@ byte-exact through `copy.write_row`.
 strings, so it needs no converter table at all — the whole `_CONVERTERS` mechanism that SQL Server
 forced on `import_sql_table` is absent here.
 
-**Note:** this is a deliberate divergence from the sibling's shape rather than a translation of it,
-agreed because the PowerShell side wants the same improvement. The intention is to port `COPY` back
-to `Write-PgTable`.
+**Note:** this started as a deliberate divergence from the sibling's shape rather than a translation
+of it, agreed because the PowerShell side wanted the same improvement. **That has happened, so this
+is no longer a difference between the two repositories** — both load PostgreSQL through the text
+form of `COPY`, and the entry stays because it is the record of why.
+
+Two things the PowerShell side found that this one never had to:
+
+- **A `bytea` value has to be written as `\\x…`, not `\x…`.** `\x` is an escape of the copy format
+  itself, so a single backslash makes PostgreSQL decode the hex into raw bytes rather than pass the
+  text to the `bytea` parser — and a `0x00` in there then fails as `invalid byte sequence for
+  encoding "UTF8"`. psycopg's `copy.write_row` never exposes this, because it does its own
+  adaptation instead of being handed a string.
+- **A `DateTime` needs an explicit format.** PowerShell renders numbers culture invariantly but a
+  `DateTime` without its milliseconds, so `Write-PgTable` formats those with `ToString('o')`. In
+  Python the value is passed as an object and never becomes text on this side.
 
 **Why it matters:** the same problem produced opposite answers on the two databases. On SQL Server,
 passing raw strings fails outright and the fastest path needs the most code. On PostgreSQL, passing

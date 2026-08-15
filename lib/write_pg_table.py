@@ -78,9 +78,10 @@ def write_pg_table(
         start_time = time.time()
         inserted = 0
 
-        # DIFFERENCE: the sibling fills a DataTable and lets an NpgsqlDataAdapter generate the
-        # INSERT statements. COPY is what PostgreSQL itself offers for this, and it measured
-        # about four times faster than the same rows through executemany.
+        # COPY is what PostgreSQL itself offers for this, and it measured about four times faster
+        # than the same rows through executemany. The sibling's Write-PgTable used to fill a
+        # DataTable and let an NpgsqlDataAdapter generate the INSERT statements; it writes to
+        # Npgsql's BeginTextImport now, so the two are the same shape again.
         if data is not None:
             # Match the DataFrame columns case insensitively: extra columns are dropped,
             # columns the frame does not have become NULL
