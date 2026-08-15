@@ -34,6 +34,19 @@ if ($LASTEXITCODE -ne 0) { throw 'failure in 05_sample_data_setup.py'}
 wsl --cd $PSScriptRoot bash -lc 'python ./06_test_connections.py'
 if ($LASTEXITCODE -ne 0) { throw 'failure in 06_test_connections.py'}
 
+# Hold WSL2 open for the Windows half of this script
+# Everything from here on runs on Windows, so no "wsl" process is alive - and WSL2 terminates the
+# distribution a few seconds after its last process exits, taking every container with it. That is
+# the same reason start_demo.ps1 ends in a "wsl" shell.
+#
+# Measured in the sibling repository before it had this: the last WSL2 step finished at 20:56:01, and
+# at 20:56:16 every container logged a shutdown - postgres "received fast shutdown request", mongo a
+# SignalHandler. The connection test two seconds later then failed against a database that no longer
+# existed, with a socket error that reads exactly like a missing port forward. It is not one, and the
+# two are indistinguishable from the driver's message alone - check the container log, whose
+# timestamps are UTC while these are local.
+$keepWsl2Alive = Start-Process -FilePath wsl -ArgumentList 'sleep', '900' -PassThru -NoNewWindow
+
 # Wait for the port forwarding on the Windows side
 # The step above reaches the containers over the WSL2 loopback. Windows reaches them through
 # wslrelay, which publishes each container port here a moment after docker binds it inside WSL2 -
@@ -77,5 +90,8 @@ wsl --cd "$PSScriptRoot\docker" --user root docker compose stop
 if ($LASTEXITCODE -ne 0) {
     Write-Warning 'failure stopping the containers - they are still running and will be in the way of the sibling repository'
 }
+
+# The containers are down, so nothing needs WSL2 held open any more
+Stop-Process -InputObject $keepWsl2Alive -ErrorAction Ignore
 
 if ($windowsTestFailed) { throw 'failure in 06_test_connections.py on Windows'}

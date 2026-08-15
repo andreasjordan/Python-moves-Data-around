@@ -98,9 +98,13 @@ wait_for sqlserver 150 \
     docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -h -1 -W \
     -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = 'ProjectStatus'"
 
+# PostgreSQL runs the files in /docker-entrypoint-initdb.d in alphabetical order, so
+# stackexchange.sql is the last of the three - but CREATE DATABASE is its *second* statement, so
+# asking for the database would return while its 18 tables were still being created. Import_VoteTypes
+# is the last table in that file, and PostgreSQL folds the name to lower case.
 wait_for postgres 150 \
-    docker compose exec -T postgres psql -U postgres -tAc \
-    "SELECT COUNT(*) FROM pg_database WHERE datname = 'stackexchange'"
+    docker compose exec -T postgres psql -U postgres -d stackexchange -tAc \
+    "SELECT COUNT(*) FROM pg_tables WHERE tablename = 'import_votetypes'"
 
 wait_for mongo 150 \
     docker compose exec -T mongo mongosh --quiet -u stackexchange -p "$PASSWORD" \
