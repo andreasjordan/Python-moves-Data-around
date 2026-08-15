@@ -42,19 +42,19 @@ had also dropped the event streaming story, which was collateral damage from a d
 storage. The events keep the sibling's `Add-LoggingEvent` shape and the replay loop is still a
 translation of its loop, so the *section* is recovered rather than invented — but the two repositories
 can no longer be shown side by side for it, because one side is empty. Recorded in `DIFFERENCES.md`
-under Kafka. Stepped through end to end, outputs committed.
+under Kafka. Stepped through end to end; the outputs are cleared before committing.
 
 | Area | State |
 | --- | --- |
 | `demo/01_timesheets.ipynb` | Works, end to end, against a running SQL Server container. |
-| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end, outputs committed. Complete, apart from the sibling's Azure SQL bonus. |
-| `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end, outputs committed. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
-| `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end, outputs committed. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
-| `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. Stepped through end to end, outputs committed. Not a port — see above. **The counts are not reproducible** — the shop keeps producing, so the topic is bigger on every run. **Needs the application to have been running for about two minutes**, and the notebook says so at the top: the app truncates its tables at startup, so before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. **The notebook's own text still says twenty minutes** — it was written against the old schedule and has not been re-run since, so that is a markdown cell to fix on the next pass through it. |
+| `demo/02_stackexchange.ipynb` | Reading the XML files, importing them into SQL Server, PostgreSQL and Oracle, streaming table to table, and a MongoDB bonus section at the end. Stepped through end to end; the outputs are cleared before committing. Complete, apart from the sibling's Azure SQL bonus. |
+| `demo/03_geodata.ipynb` | GPX and GeoJSON into SQL Server, PostgreSQL/PostGIS and Oracle Spatial, through WKT. Stepped through end to end; the outputs are cleared before committing. Complete apart from the Mauttabelle bonus, which was left out on purpose. **One caveat:** the `ORA-13199` counts near the end are not reproducible — re-running the notebook will print different numbers, so the narration deliberately names no single count. |
+| `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. Stepped through end to end; the outputs are cleared before committing. Complete, apart from the sibling's MinIO and Azure sections. **The order counts are not reproducible** — the application keeps writing, so every run prints different numbers, and no narration quotes one. |
+| `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. Stepped through end to end; the outputs are cleared before committing. Not a port — see above. **The counts are not reproducible** — the shop keeps producing, so the topic is bigger on every run. **Needs the application to have been running for about two minutes**, and the notebook says so at the top: the app truncates its tables at startup, so before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. |
 | `lib/` | Twenty-two functions: `connect`, `invoke`, `write`, `import` and `get_*_data_reader` for `sql`, `ora` and `pg`, `connect`, `write` and `read` for `mdb`, and two `connect`s plus `write` and `read` for `kfk`. The six `invoke_*_query` and `write_*_table` functions grew `commit=True` for PhotoService. |
-| `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end, outputs committed. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
+| `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. Stepped through end to end; the outputs are cleared before committing. Complete. **Reproducible**, unlike the other four — the sample data is fixed, so the narration quotes its counts. |
 | `docker/` | Complete. `sqlserver-projectstatus.sql` had been missing and was added, so all five scenarios' databases are created. `photoservice-app.ps1` has been replaced by `photoservice-app.py`. |
-| The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. Re-run after the build/run split below, and the `docker compose stop` that now ends `01_setup.ps1` works. **What has not been exercised is the two-repository flow itself** — the sibling-stop block in `04` has never had anything to stop, because the sibling has not had finding 14 applied yet. |
+| The setup chain | Ported to Python, and **run start to finish against a clean install with no errors**, including the Windows half: the `pip install` that now opens the script and the second `06_test_connections.py` that closes it. `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. The Windows run failed the first time it existed, on a port-forwarding race — that is what added the wait in front of it, and the wait has now been through a clean run. Re-run after the build/run split below, and the `docker compose stop` that now ends `01_setup.ps1` works. **The two-repository flow has now been exercised in both directions** (2026-08-15): switching to this stack stopped all seven of the sibling's containers, switching back stopped all eight of these, both exiting 0. Both `06_test_connections.py` runs pass, inside WSL2 and on Windows. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | `docker/photoservice-app.py` | The ported application, running as the `photoservice` service on a stock `python:3.13-slim` image. It mounts `lib/` and installs `pandas`, `psycopg[binary]`, `pymongo` and `confluent-kafka` when the container starts. It is the source of everything the second half of scenario 4 transfers **and of every event demo 6 reads**, so both are empty unless this container is running. `docker compose restart photoservice` is the cheap reset for those two demos — it truncates its own PostgreSQL tables, drops its MongoDB collection, and restarts the two-minute clock. Keep that schedule in step with the sibling's `photoservice-app.ps1`. See "Reset the containers" in `README.md`; a full `down -v` is almost never what is wanted here. |
 | `docker/` Redpanda | The `redpanda` service serves the Kafka API on `19092` from Windows and `redpanda:9092` on the compose network — it advertises both, and getting that wrong is the classic Kafka-in-Docker trap. `redpanda-console` is on `8080`, there for the same reason pgAdmin is. |
@@ -388,39 +388,47 @@ goes. The markdown cells between the code are the narration.
 
 - Never run the notebook, and never run "Run All".
 - Never merge cells to make them run in one go, and never restructure it into a `.py` script.
-- **Never strip the outputs.** They are committed on purpose: the printed DataFrames and the
-  `[VERBOSE]` lines are what the reader of the repository sees without a database of their own.
-  A tool or hook that clears notebook output is wrong for this repository.
+- **The outputs are not committed, and that is deliberate as of 2026-08-15.** Every notebook here is
+  stored cleared: no `outputs`, `execution_count: null`. The reader runs it to see results, exactly as
+  they must on the PowerShell side, which has never had output to look at. It also keeps the files
+  short and every session starting from the same place.
+- **So never commit a notebook with outputs in it.** If a run leaves them behind, clear them before
+  committing. This is the reverse of what this file said until 2026-08-15, and the reverse of what the
+  older commits show.
 - Cells that only put a variable name on the last line, imports repeated in a later cell, and code
   commented out on purpose (`os.startfile`, the `DROP TABLE`) are **pedagogical, not dead code**.
   Do not flag or remove them.
 
-When you do change a notebook, edit the JSON minimally with `NotebookEdit` and touch only the cells
-the task is about. Do not reformat the file — a whole-file rewrite loses the diff and usually the
-outputs with it.
+When you do change a notebook, edit the JSON minimally and touch only the cells the task is about. Do
+not reformat the file — a whole-file rewrite loses the diff.
 
-### How to actually edit these notebooks, because the obvious way stops working
+**If you do need to rewrite a notebook wholesale, match the file rather than a house style.** These
+files are not all written the same way, and the differences are real: `json.dumps(nb, indent=1,
+ensure_ascii=False)` reproduces them, but `01_timesheets.ipynb` has **no final newline** (`.editorconfig`
+turns that off for `*.ipynb`) and `03_geodata.ipynb` is **CRLF**. Check that a round trip reproduces the
+file byte for byte *before* writing anything; if it does not, stop rather than normalise it.
 
-Two of the three notebooks are now past the point where the tooling copes, and this will cost you time
-if you do not know it in advance:
+### How to actually edit these notebooks
 
-- **`NotebookEdit` requires a successful `Read` first, and `Read` refuses these files.**
-  `demo/03_geodata.ipynb` is about 26k tokens with its outputs, over the limit, and `offset`/`limit` do
-  not help on an `.ipynb`. `demo/02_stackexchange.ipynb` is close behind.
+Clearing the outputs took the whole set from 560 KB to 169 KB, and with that the worst of this problem
+went away: `demo/03_geodata.ipynb` was about 26k tokens and refused by `Read`, and is now a fifth of
+that. All six can be read directly.
+
+One thing has not changed:
+
 - **The `Edit` tool refuses `.ipynb` outright**, and tells you to use `NotebookEdit`.
 
-So for a notebook that already carries outputs, change one cell with a **raw exact-match replacement in
+So to change one cell, use `NotebookEdit`, or a **raw exact-match replacement in
 Python**: read the file as text, `assert raw.count(OLD) == 1`, replace, write back. Get `OLD` by
 printing the raw JSON slice around the cell id first, so the escaping is exactly right. The assert is
 the safety rail — without it a near-miss silently writes nothing or, worse, twice.
 
-Do **not** load the JSON and re-dump it. Whatever indent or `ensure_ascii` you pick will differ from
-what Jupyter wrote, and the entire file reformats — losing the diff, which is the thing this section
-exists to protect.
+Do **not** load the JSON and re-dump it casually. The right format is `indent=1, ensure_ascii=False`,
+but two of these files carry their own conventions on top of that — see the byte-for-byte round-trip
+check described above — and getting it wrong reformats the whole file and loses the diff.
 
 Adding cells to the *end* of a notebook, or building a new notebook, is fine with `Write` or a small
-generator script. Inserting into the middle of one that has outputs is where you need the raw
-replacement. When inserting several cells with `NotebookEdit`, insert them in **reverse order** all
+generator script. When inserting several cells with `NotebookEdit`, insert them in **reverse order** all
 anchored to the same existing `cell_id`; you do not know the ids of cells you have not created yet.
 
 Also: `Path.write_text` on Windows turns `\n` into `\r\n`, so a generated notebook lands with CRLF.
@@ -432,13 +440,13 @@ An agent cannot run a notebook, so a notebook change is finished in two steps an
 owner's:
 
 1. Write or edit the cells. New cells have **no outputs** — never hand-write an output.
-2. Say so, and stop. The owner steps through the notebook in VS Code and then asks for the commit.
+2. Say so, and stop. The owner steps through the notebook in VS Code to check that it still runs.
 
-State that the cells have no committed output in the `Current state` table while that is true, and
-**remove that note in the same commit that lands the outputs** — not in a follow-up. Before committing
-after the owner's run, check what they actually produced: count the outputs, look for code cells that
-came back empty, and read the cells whose numbers the narration quotes. That last check has caught a
-contradiction twice — a markdown cell asserting a count that the cell above it no longer printed.
+Since the outputs are no longer committed, step 2 no longer produces anything to commit — the change is
+complete once the cells are right, and the owner's run is a check rather than a second half. What still
+has to be checked by hand is the **narration**: a markdown cell that quotes a number the code no longer
+produces is now invisible, because there is no output next to it to contradict it. That has caught a
+contradiction twice, and it was the committed outputs that made it catchable.
 
 Scripts that *are* meant to run: the numbered scripts in the repository root (subject to the table
 above), `07_check_ports.ps1` and `start_demo.ps1`. `demo/import_xls_timesheet.py` only defines a function and is

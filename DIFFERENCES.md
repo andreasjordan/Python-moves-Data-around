@@ -1179,10 +1179,18 @@ F8 in VS Code.
 
 **Python:** a notebook, executed cell by cell.
 
-**Consequence:** the notebook outputs are committed on purpose, so the repository shows printed frames
-and `[VERBOSE]` lines to a reader who has no database. The cost is that they go stale — adding the
-`[VERBOSE]` prefix to `write_sql_table` invalidated the output of one cell, which then had to be
-re-run rather than edited. Output must never be written by hand.
+**Consequence, and it was decided twice.** A notebook *can* carry its outputs, and a `.ps1` cannot, so
+for most of the port they were committed: the repository showed printed frames and `[VERBOSE]` lines to
+a reader with no database. That had a cost — they go stale. Adding the `[VERBOSE]` prefix to
+`write_sql_table` invalidated one cell's output, which then had to be re-run rather than edited.
+
+**On 2026-08-15 the decision was reversed and the outputs are cleared.** Three reasons, in the owner's
+order: the two repositories are shown side by side and the sibling has never had output to read, so
+committing it here made the halves unequal; the files are much smaller, 560 KB down to 169 KB for the
+six; and every session then starts from the same empty state. The cost is the one the old decision was
+buying — a GitHub reader now sees code and narration but no results, and has to run it.
+
+Output must still never be written by hand.
 
 ### Progress and logging
 

@@ -94,8 +94,8 @@ The notebooks are **not meant to be executed as a whole**. They are meant to be 
 Code and then run cell by cell, so that you can look at the data and the results at every step. The
 markdown cells in between are the story.
 
-The outputs are committed on purpose, so that you can read through a demo without setting up a single
-container.
+The notebooks are stored with their outputs cleared, so you run them to see the results — the same as
+on the PowerShell side, which has never had output to read.
 
 A notebook expects the working directory to be `demo/`, which is what VS Code and Jupyter do by
 default. That is how `sys.path.append(str(Path("../lib").resolve()))` finds the functions in `lib/`.
