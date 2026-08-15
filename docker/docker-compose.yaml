@@ -131,6 +131,11 @@ services:
       # Without this, print() is buffered and "docker compose logs" stays empty for minutes
       PYTHONUNBUFFERED: 1
     volumes:
+      # The shop stores local time in created_at and updated_at, and without this line "local" is
+      # UTC inside the container - the image has tzdata but /etc/localtime points at UTC, so
+      # datetime.now() is two hours behind the wall clock. The sibling's photoservice mounts the
+      # same file for the same reason; the two applications have to agree on what the column means.
+      - /etc/localtime:/etc/localtime:ro
       - ./photoservice-app.py:/PhotoService/app.py:ro
       - ./photoservice-CustomerSource.json:/PhotoService/CustomerSource.json:ro
       - ../lib:/PhotoService/lib:ro
