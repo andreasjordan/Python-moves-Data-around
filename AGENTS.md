@@ -616,20 +616,16 @@ an absolute path as the target, stops the `[lint.per-file-ignores]` globs from m
 is relative — and the notebooks then report dozens of `E501`s that are deliberately ignored. The count
 jumping into the tens is the symptom.
 
-**The baseline is four findings, not zero**, and they are left visible on purpose rather than silenced,
-because each is a single site where an `ignore` entry would suppress future real ones too:
+**The baseline is `All checks passed!` and exit 0.** Anything at all is new. That is the whole value of
+the check being clean rather than nearly clean — nobody has to remember which findings are the expected
+ones, and a real defect cannot hide in a list of tolerated noise.
 
-| Finding | Why it is still there |
-| --- | --- |
-| `S310` in `05_sample_data_setup.py` | `urlopen` on the four hard-coded download URLs. Same argument as `S603`/`S607` below it, but one call site does not justify disabling the rule repository-wide. |
-| `SIM108` in `demo/import_gpx_file.py` | Ruff wants a ternary. The `if`/`else` is four short lines that can be read out loud; the ternary is one long one that cannot. The prime directive wins. |
-| `W291` in `demo/01_timesheets.ipynb` | One trailing space inside a `CREATE TABLE` string, in a notebook that carries committed outputs. Covered by the `Style` rule below: pre-existing whitespace is left alone. |
-| `W292` in `demo/import_xls_timesheet.py` | Missing final newline, same rule. |
-
-So the check passing means **these four and nothing else**. Anything beyond them is new, and the
-question is which of two things it is: code that should change, or a decision that is not written down
-yet. The `ignore` list in `ruff.toml` is long and every entry names the decision behind it — do not add
-a bare code to it. An entry without a reason is worse than the finding.
+So a new finding is one of two things: code that should change, or a decision that is not written down
+yet. The `ignore` list in `ruff.toml` is long and every entry names the decision behind it — **do not
+add a bare code to it.** An entry without a reason is worse than the finding it silences. When the
+exemption belongs to one call site rather than to the repository, use `# noqa: <code>` there with the
+reason above it, as `05_sample_data_setup.py` does for `S310`; a global ignore would also silence the
+next occurrence, which is the one you would want to hear about.
 
 **Set `PYTHONIOENCODING=utf-8` on anything that prints notebook content.** The console is `cp1252` and
 the committed outputs contain non-ASCII from the sample data — a StackExchange display name is
@@ -693,9 +689,16 @@ DataFrames are the canonical in-memory shape for data in flight, the counterpart
 `[PSCustomObject]` arrays. Prefer a single chained `assign(...)[[columns]]` over building a frame
 column by column — it fits on a slide.
 
-**Do not reformat lines you are not otherwise changing.** There is pre-existing trailing whitespace and
-there are missing final newlines in places; leave them alone unless the task is explicitly a formatting
-pass.
+**Do not reformat lines you are not otherwise changing.** That is about wrapping, quoting and moving
+code around, not about whitespace — every tracked file outside `data/` is now clean of trailing
+whitespace, and every one but the notebooks ends with a newline. `.editorconfig` sets
+`trim_trailing_whitespace` and `insert_final_newline` to keep it that way, so a stray trailing space in
+a diff is something you introduced.
+
+The notebooks are exempt on purpose: `.editorconfig` turns **both** settings off for `*.ipynb`, because
+Jupyter owns that file and writes it without a final newline. Ruff still checks the cells, though, so
+trailing whitespace *inside* a cell is a finding and has to be removed by hand — with the raw
+exact-match replacement described above, not by letting an editor reformat the file.
 
 ## Adding or porting a demo scenario
 

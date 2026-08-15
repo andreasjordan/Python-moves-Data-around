@@ -28,7 +28,10 @@ def download(url, target):
     # later inside demo 3 as a JSONDecodeError that says nothing about a download.
     temporary = target.with_name(target.name + ".part")
 
-    with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as file:
+    # noqa on the next line, not in ruff.toml: every url passed in here is a literal further down
+    # this file, so `file:` and the other schemes S310 warns about cannot get in. It stays a local
+    # exemption so that a download added later, with a url built from a variable, still trips it.
+    with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as file:  # noqa: S310
         shutil.copyfileobj(response, file)
         expected = response.headers.get("Content-Length")
 

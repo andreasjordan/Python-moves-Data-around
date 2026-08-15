@@ -76,6 +76,13 @@ ignore = [
     # the script only ever runs inside the WSL2 that installed the binary in the first place.
     "S603",
     "S607",
+
+    # import_gpx_file builds the WKT for a track and for a route in two loops that are written
+    # to look alike, because that similarity is the point being made on the slide. The track has
+    # three cases and cannot become a ternary; the route has two and could. Taking the suggestion
+    # would rewrite one half of a matched pair and leave the other, which is exactly the
+    # unexplained divergence between siblings that AGENTS.md calls a bug.
+    "SIM108",
 ]
 
 # Import sorting (I), the docstring rules (D) and `ruff format` are deliberately left off.
