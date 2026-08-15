@@ -789,12 +789,16 @@ entirely, so only the second guard is left. Slightly less code, and the reason f
 
 ## Kafka
 
-### The one thing here that is not a port
+### The one thing here that was not a port, until the sibling caught up
 
-Everything else in this file explains why a translation came out the way it did. This entry is the
-exception: Kafka has **no counterpart in the sibling repository at all**, so it is an addition rather
-than a difference, and it is written down here because there is nowhere else that records why the two
-repositories are no longer the same shape.
+Everything else in this file explains why a translation came out the way it did. This entry was the
+exception: Kafka started here, as an addition rather than a difference, and it is written down because
+there was nowhere else recording why the two repositories had stopped being the same shape.
+
+**The sibling caught up on 2026-08-15.** It has `demo/06_eventstreaming.ps1`, five `lib/*-Kfk*.ps1`
+functions and the same two Redpanda services, copied from this compose file including the two
+advertised listeners. So this is a difference in *origin* now, not in content — see "What the .NET
+client forced" at the end of this entry for the handful of places the two really do differ.
 
 **How it happened:** MinIO was dropped for two good reasons, and the cost recorded at the time was
 that the PhotoService demo lost its *"Transfer data from logging (or kafka)"* section — the one that
@@ -819,8 +823,36 @@ rejected:** stopping at the `order_event` outbox table, which needs no new infra
 the *opening* of the demo rather than the whole of it — it makes the case for a log by running into
 the three problems a log solves.
 
-**What it costs, and it should be said plainly:** the two repositories can no longer be shown side by
-side for this one section, because one side is empty. Everything else here still can.
+**What it cost while it lasted:** the two repositories could not be shown side by side for this one
+section, because one side was empty. That is over.
+
+### What the .NET client forced
+
+Both sides wrap **librdkafka** — `confluent-kafka` here, `Confluent.Kafka` there — so the two demos
+are near-identical in shape. Four things still came out differently, and all four are the wrapper
+rather than the language:
+
+- **Loading the driver is real work over there.** `pip install confluent-kafka` brings a wheel with
+  the native library inside it. `Import-KfkLibrary` has to fetch *two* nuget packages and put the
+  native one beside the managed assembly, pick a different build per platform, and cope with `lib/`
+  being shared by Windows, WSL2 and the container at once. Nothing here has an equivalent problem.
+- **The plain Linux `librdkafka.so` is unusable on Ubuntu.** It links `libsasl2.so.3` where Ubuntu
+  ships `libsasl2.so.2`; the sibling takes the `centos8` build, which has everything linked in. The
+  manylinux wheel here hides all of that.
+- **There is no `producer.list_topics()`.** Metadata belongs to the admin client in .NET, so both
+  sibling connect functions build a dependent admin client purely to prove the broker answers, where
+  `connect_kfk_producer` just calls `list_topics`.
+- **`read_kfk_topic` has an `as_type` and `Read-KfkTopic` does not.** Here the choice is DataFrame or
+  dict; there `ConvertFrom-Json` already produces the `[PSCustomObject]` that is the canonical shape,
+  so there is nothing to choose. Language, this one, not the wrapper.
+
+**And two things the sender does differently, which shows up in the messages themselves.**
+`json.dumps(..., default=str)` renders a `datetime` and a `UUID` as plain strings; PowerShell's
+`ConvertTo-Json` renders a `[datetime]` as an ISO string but expands a `[guid]` into an *object* with
+`value` and `Guid` properties, which is why the sibling's replay reads `.PaymentUuid.Guid`. Coming
+back, `json.loads` leaves a timestamp a string while `ConvertFrom-Json` turns it into a `[datetime]`
+by itself. Same lesson on both sides — JSON has no date, no decimal and no GUID, so the sender
+decides — reached by opposite routes.
 
 ### A topic has no end
 

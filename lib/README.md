@@ -382,13 +382,17 @@ The grid is intentionally not square, for the same reasons as in the sibling rep
 column metadata to return and already streams.
 
 **Kafka is the first column with two functions in one cell.** Every other provider has one connection
-that both reads and writes; Kafka has a producer and a consumer, which are separate clients. It is also
-the only column with no counterpart in the sibling repository at all — see `DIFFERENCES.md`, where that
-is recorded as an addition rather than a difference.
+that both reads and writes; Kafka has a producer and a consumer, which are separate clients. The
+sibling makes the same split for the same reason. This column began as the only one with no
+counterpart over there; since 2026-08-15 it has one, and `DIFFERENCES.md` records what the .NET client
+forced that `confluent-kafka` did not.
 
-Two things the sibling needs and this repository does not: `Import-OraLibrary` and `Import-PgLibrary`,
-which download the ADO.NET DLLs from nuget.org. In Python the drivers are `pip install`ed by
-`03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo`), so those two cells of the grid disappear. For
+Three things the sibling needs and this repository does not: `Import-OraLibrary`, `Import-PgLibrary`
+and `Import-KfkLibrary`, which download the drivers from nuget.org. In Python the drivers are
+`pip install`ed by `03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo`, `confluent-kafka`), so those
+cells of the grid disappear — and the Kafka one is the widest gap of the three, because the wheel here
+carries the native librdkafka while over there it is a second package that has to be put in the right
+directory, per platform. For
 Oracle that saved more than the download: `oracledb` in thin mode needs no Oracle Instant Client at
 all.
 

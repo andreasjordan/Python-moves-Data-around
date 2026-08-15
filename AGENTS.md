@@ -36,13 +36,15 @@ ProjectStatus port" below.
 **With that, every scenario of the sibling repository is ported.** What is left is a short list of
 bonus sections that were each left out for a stated reason — see "What is left to port".
 
-**And one thing here is no longer a port at all.** `demo/06_eventstreaming.ipynb`, the `kfk` column of
-`lib/` and the Redpanda container have no counterpart in the sibling. They exist because dropping MinIO
-had also dropped the event streaming story, which was collateral damage from a decision about object
-storage. The events keep the sibling's `Add-LoggingEvent` shape and the replay loop is still a
-translation of its loop, so the *section* is recovered rather than invented — but the two repositories
-can no longer be shown side by side for it, because one side is empty. Recorded in `DIFFERENCES.md`
-under Kafka. Stepped through end to end; the outputs are cleared before committing.
+**`demo/06_eventstreaming.ipynb` started life as the one thing here that was not a port, and it is one
+now.** It exists because dropping MinIO had also dropped the event streaming story, which was
+collateral damage from a decision about object storage; the events keep the sibling's
+`Add-LoggingEvent` shape and the replay loop is still a translation of its loop, so the *section* was
+recovered rather than invented. **The sibling caught up on 2026-08-15** — it has
+`demo/06_eventstreaming.ps1`, the five `lib/*-Kfk*.ps1` functions and the same two Redpanda services,
+so the two repositories can be shown side by side for this section after all. Recorded in
+`DIFFERENCES.md` under Kafka, which is where the differences the .NET client forced are listed.
+Stepped through end to end; the outputs are cleared before committing.
 
 | Area | State |
 | --- | --- |
