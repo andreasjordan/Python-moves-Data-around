@@ -222,19 +222,20 @@ start twice, though, once per repository: the volumes belong to the stack, not t
 end, which is what makes running it in both repositories possible: the other setup would otherwise find
 these containers holding every port it wants.
 
-**Coming back to this repository is always safe; going the other way is not, yet.** The sibling
-repository has not had this change — its setup still finishes by keeping its own containers running, and
-its `04_docker_compose.sh` does not stop anyone else's. So stop this repository's containers by hand
-before you run anything over there, from this directory:
-
-```
-wsl --cd "$PWD\docker" --user root docker compose stop
-```
+**Switching in either direction is handled for you.** Both repositories now end their setup with
+`docker compose stop`, and both stop the other one's containers before starting their own — found by the
+`com.docker.compose.project` label, so neither needs a file from the other. Nothing has to be stopped by
+hand any more.
 
 To demo, run `start_demo.ps1`. Both repositories publish the same ports, so only one stack can run at a
 time, and `start_demo.ps1` stops the other one for you before starting its own. That is a stop and not
 a `down`, so the volumes on both sides survive — switching back and forth costs a minute, not another
 Oracle start.
+
+Why it stops the other stack rather than letting the ports collide: both repositories use the same
+ports, the same password *and* the same database names. A port conflict would at least be loud. Instead
+the other stack answers every connection, so a demo started while the sibling is up does not fail — it
+succeeds against the wrong volumes.
 
 To see which stack is currently running:
 
@@ -307,6 +308,13 @@ WSL2 reaches the containers over the WSL2 loopback, while the one on Windows goe
 forwarding that Windows sets up, which is the only path a notebook ever takes. Those forwards do not
 all appear at the same moment, which is why the last step waits for them first — a connection refused
 from Windows usually means the forward is not there yet, not that the database is down.
+
+The last three rows all run on the Windows side, so the script holds WSL2 open with a background `wsl`
+process while they do. Without it WSL2 shuts the distribution down a few seconds after its last command
+finishes and takes every container with it, and the connection test then fails against databases that
+are no longer running — with a socket error that reads exactly like the missing port forward above, and
+is nothing of the kind. If you ever have to tell the two apart, the container log settles it; note that
+it is in UTC while the script's output is local time.
 
 A failure in the connection test from Windows does not stop the script before the stop below — the
 script reports the failure once the containers are down, and `start_demo.ps1` brings them back in a
