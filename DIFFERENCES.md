@@ -918,10 +918,16 @@ rather than assumed, because the Oracle entry above is what happens otherwise.
 ### Not ported, and not pending either
 
 **The sibling:** has `Connect-MioInstance` and four file functions, `Get-MioFile`,
-`Get-MioFileList`, `Set-MioFile` and `Remove-MioFile`. They hand-roll AWS SigV4 request signing as
-script methods on a `PSCustomObject`, with no SDK involved. `05_sample_data_setup.ps1` uploads the
+`Get-MioFileList`, `Set-MioFile` and `Remove-MioFile`. They hand-roll AWS request signing as script
+methods on a `PSCustomObject`, with no SDK involved. `05_sample_data_setup.ps1` uploads the
 StackExchange files to a bucket, and `demo/02_stackexchange.ps1` ends by listing the bucket and
 reading `Users.xml` back out of it.
+
+**It is Signature Version 2, not SigV4** — HMAC-SHA1 over `verb \n content-md5 \n content-type \n date
+\n /bucket/key`, base64, into an `Authorization: AWS <key>:<signature>` header. This file said SigV4
+in two places until 2026-08-15 and so did the sibling's `AGENTS.md`; the code was always correct SigV2,
+only the description was wrong. It matters for the paragraph below: SigV2 is four lines, while SigV4
+would be a canonical request plus four chained HMAC-SHA256 rounds and a rather different talk.
 
 **Decision: this is out of scope, not on the to-do list.** Two independent reasons, and either would
 have been enough:
@@ -933,12 +939,17 @@ have been enough:
   answers a different one: how does a *file* get uploaded and downloaded. The demo would show a file
   going up and coming back down unchanged, which is a storage story rather than a data-movement story.
 
-**What that costs, and it is worth being honest about it:** the sibling's hand-rolled SigV4 is the
+**What that costs, and it is worth being honest about it:** the sibling's hand-rolled signing is the
 most interesting code in either repository, precisely because nothing hides it. Porting it would have
 meant either doing the same in Python — signing requests by hand — or reaching for `boto3` or `minio`,
 which would have been the first time a library hid the protocol being demonstrated, the same category
 of decision as "no SQLAlchemy". That comparison would have been a good five minutes of a talk. It is
 not enough to keep a deprecated dependency for.
+
+**The sibling is not deleting the code, though** (decided 2026-08-15). Its five `lib/*-Mio*.ps1` files
+stay and its `lib/README.md` gained a *"MinIO is on its way out of the lab"* section with a worked
+example of all five functions; only the container and the call sites go. So the code stays readable
+over there, and this side still has no counterpart — which is the difference this entry records.
 
 **Consequences elsewhere:**
 
