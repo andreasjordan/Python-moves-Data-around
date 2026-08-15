@@ -712,8 +712,30 @@ whether the check could pass for the wrong reason.
 `oracledb.defaults.fetch_lobs = False` had no effect. It had reused the SQL text of the previous query,
 so oracledb's statement cache served the old fetch metadata. Vary the SQL, or pass `stmtcachesize=0`.
 
+**Before believing a `PASS`, ask what the check would print if the thing under test were absent.**
+Three checks passed for the wrong reason in a single session on 2026-08-15: one compared failure
+*counts* while the membership moved underneath, one compared MD5 hashes that were `NULL` on both sides,
+and one asserted a row count copied out of this file rather than out of the data. All three read as
+green. Assert the preconditions too — that the source is non-`NULL`, that the column has real values in
+it — or the comparison is measuring nothing.
+
 If a change really cannot be verified — containers down, driver missing — say so plainly rather than
 claiming it works.
+
+### Known-good numbers, measured 2026-08-15 on both repositories
+
+Reproduce these rather than inventing a new check. Both sides were driven through their own shipped
+functions and agreed on every one:
+
+| What | Number |
+| --- | --- |
+| `Users.xml` | 12220 rows; **12179** carry real milliseconds in `LastAccessDate`, while **all 12220** `CreationDate` values end in `.000` — which is why that column alone proves nothing |
+| StackExchange import | 0 of 12220 differ on either timestamp column, on SQL Server, PostgreSQL and Oracle, **with no tolerance** since the `DATETIME2(3)` change |
+| Timesheets | **94** rows from the three `Department*.xlsx`, 3 departments, 4 people — the same 94 as the sibling, although `-DataOnly` there and `dropna` here keep different intermediate counts |
+| `countries.geojson` | 14643643 bytes, **258** features; PostGIS converts 258/258 with 0 invalid |
+| Oracle `TO_WKTGEOMETRY` | non-deterministic on purpose — seen at 31, 39, 40, 42 and 64 failures over the same 258 rows. **Do not "fix" this or write down a mechanism**; `DIFFERENCES.md` has four rejected explanations |
+| ProjectStatus | 9 rows after `dropna`, **8** after the `NEW PROJECTS:` heading is skipped, 4 rejected for 4 distinct reasons, 5 land after the colour retry, 3 handed back |
+| PhotoService photos | **24** images, **43.5 MB** — and check they are not `NULL` first, because the `photo` rows exist with a `NULL` image until demo 4's first section loads them |
 
 ## Style
 
