@@ -64,10 +64,16 @@ under Kafka. Stepped through end to end, outputs committed.
 Do not "discover" these as new findings and do not fix them as a side effect of an unrelated task.
 They are known, and each one is a decision the repository owner has not made yet.
 
-**When something is wrong in the sibling repository, append an entry to `SIBLING-FINDINGS.md`** rather
-than fixing it there. That file is the work list for a session opened in the PowerShell repository, and
-each entry records whether this repository — which inherited `docker/` verbatim — is already fixed, so
-the two do not drift unnoticed.
+**When something is wrong in the sibling repository and you cannot reach it, append an entry to
+`SIBLING-FINDINGS.md`** rather than fixing it there. That file is the work list for a session opened in
+the PowerShell repository, and each entry records whether this repository — which inherited `docker/`
+verbatim — is already fixed, so the two do not drift unnoticed.
+
+**If both repositories are open** — a VS Code workspace holding the two of them, so the PowerShell
+repository is a working directory and not just a path — then fix it in place instead, and commit per
+repository. `SIBLING-FINDINGS.md` is then the queue for what is deliberately deferred, not a way of
+routing work across a wall. Say which of the two situations you are in before the first change on the
+other side.
 
 **When a design decision is made, append an entry to `DIFFERENCES.md`** — what the sibling does, what
 Python forced, the evidence, the decision, and what was rejected. That file is the record of *why* the
