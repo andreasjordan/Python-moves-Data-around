@@ -1,3 +1,4 @@
+import contextlib
 import time
 
 import pandas as pd
@@ -137,9 +138,13 @@ def write_pg_table(
         print("[VERBOSE] Bulk insert complete")
 
     except Exception as e:
-        # With commit=False the transaction is not ours to end, so the caller rolls it back
+        # With commit=False the transaction is not ours to end, so the caller rolls it back.
+        # The rollback is guarded because it can fail too, and then it replaces the real error
+        # with its own: when the server closes the connection, "terminating connection due to
+        # administrator command" is what went wrong and "the connection is lost" is all you see.
         if commit:
-            connection.rollback()
+            with contextlib.suppress(Exception):
+                connection.rollback()
         message = f"Writing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)

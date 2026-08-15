@@ -1,3 +1,4 @@
+import contextlib
 import json
 import time
 import xml.etree.ElementTree as ET
@@ -108,7 +109,10 @@ def import_pg_table(
         print(f"[VERBOSE] Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
 
     except Exception as e:
-        connection.rollback()
+        # Guarded, because the rollback can fail too and would then replace the real error with
+        # its own - see the same guard in write_pg_table.
+        with contextlib.suppress(Exception):
+            connection.rollback()
         message = f"Importing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
