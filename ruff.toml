@@ -1,8 +1,8 @@
 # Ruff settings for this repository.
 #
 # Run with:  python -m ruff check .
-# Ruff is not a runtime dependency and is not installed yet. Install it once with:
-#   pip install ruff
+# Ruff is not a runtime dependency and is deliberately not in requirements.txt. It is installed
+# once, by hand, into the Windows interpreter:  pip install ruff
 #
 # This is a `ruff.toml` and not a `[tool.ruff]` section in a `pyproject.toml` on purpose:
 # the repository is deliberately not a Python package (see AGENTS.md, "Loading model"),
@@ -13,8 +13,7 @@
 
 line-length = 120
 
-# Bump to "py314" once the installed ruff knows that target. Only the UP rules care.
-target-version = "py313"
+target-version = "py314"
 
 exclude = ["data", "docker"]
 
@@ -46,6 +45,21 @@ ignore = [
     "TRY300",
     "TRY400",
 
+    # The same contract, seen from its two other sides. The guard clauses ("no data", "unknown
+    # as_type") raise inside the `try` on purpose, so that a caller's own mistake comes back
+    # through exactly the same path as a driver error — one message shape, one enable_exception.
+    # Abstracting them into an inner function, as TRY301 asks, would hide that. And the re-raise
+    # is `raise Exception(message)` without `from e` because the message already carries `str(e)`;
+    # chaining would print the cause twice on a slide.
+    "TRY301",
+    "B904",
+
+    # ElementTree reads the StackExchange XML dump in demo/02 and in all three
+    # import_*_table functions, and the GPX files in demo/03. Both are artifacts that
+    # 05_sample_data_setup.py downloaded from a known URL, not untrusted input, and swapping in
+    # defusedxml would add a dependency and a name the audience has to be told about mid-scenario.
+    "S314",
+
     # SQL is built from table and column names that come out of the schema of the very table
     # being written to, and identifiers are quoted before interpolation. There is no user input
     # in the string. Values always go through `?` placeholders — that part is not negotiable.
@@ -73,4 +87,8 @@ ignore = [
 # Notebooks are stepped through cell by cell. Imports repeated in a later cell, variables that
 # are only ever looked at interactively, and a bare expression on the last line of a cell are
 # pedagogical, not dead code.
-"demo/*.ipynb" = ["E402", "F401", "F811", "B018"]
+#
+# E501 is here rather than in the global ignore: the long lines are all SQL passed to
+# invoke_*_query, and wrapping a statement to fit 120 columns makes it harder to read out loud,
+# not easier. It stays enforced for lib/ and the setup scripts, where nothing needs the room.
+"demo/*.ipynb" = ["E402", "F401", "F811", "B018", "E501"]

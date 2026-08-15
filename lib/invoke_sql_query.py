@@ -53,7 +53,8 @@ def _prepare_query_and_params(query, parameter_values):
 def invoke_sql_query(
     connection,
     query,
-# TODO: Add query timeout support (pyodbc does not have built-in support, but we can implement it with a timer and connection cancellation)
+# TODO: Add query timeout support (pyodbc does not have built-in support, but we can
+# implement it with a timer and connection cancellation)
 #    query_timeout=600,
     as_type="DataFrame",  # DataFrame, dict, list, single_value
     parameter_values=None,
@@ -77,7 +78,8 @@ def invoke_sql_query(
         else:
             cursor.execute(query)
 
-        # DIFFERENCE: We need to check if the query returns rows (e.g. SELECT) or is a non-query (e.g. INSERT/UPDATE/DDL)
+        # DIFFERENCE: We need to check if the query returns rows (e.g. SELECT) or is a
+        # non-query (e.g. INSERT/UPDATE/DDL)
         # Only fetch result rows for queries that return columns
         if cursor.description:
             columns = [column[0] for column in cursor.description]
@@ -98,7 +100,7 @@ def invoke_sql_query(
                 # Like PSObject (column -> value)
                 result = []
                 for row in rows:
-                    result.append(dict(zip(columns, row)))
+                    result.append(dict(zip(columns, row, strict=True)))
                 return result
 
             elif as_type == "DataFrame":

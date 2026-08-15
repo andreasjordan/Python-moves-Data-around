@@ -599,8 +599,31 @@ Read-only inspection (`docker ps`, `docker compose logs`, `git`) is fine. Note t
 inside WSL2 and is **not** on the Windows PATH, so reaching it would mean running `wsl` — ask the owner
 about container state instead of starting anything.
 
-`ruff` is **not installed** in the Windows interpreter, so `python -m ruff check` fails with
-`No module named ruff`. Say so rather than reporting it as passing.
+`ruff` **is** installed in the Windows interpreter now (0.16.3, installed by hand on 2026-08-15). It is
+not in `requirements.txt` and is not meant to be — it is a development tool, not a runtime dependency,
+and `01_setup.ps1` should not start installing it. If a fresh machine reports `No module named ruff`,
+that is the expected state until somebody runs `pip install ruff`; say so rather than reporting the
+check as passing.
+
+**Run it from the repository root.** `ruff check .` with the working directory somewhere else, or with
+an absolute path as the target, stops the `[lint.per-file-ignores]` globs from matching — `demo/*.ipynb`
+is relative — and the notebooks then report dozens of `E501`s that are deliberately ignored. The count
+jumping into the tens is the symptom.
+
+**The baseline is four findings, not zero**, and they are left visible on purpose rather than silenced,
+because each is a single site where an `ignore` entry would suppress future real ones too:
+
+| Finding | Why it is still there |
+| --- | --- |
+| `S310` in `05_sample_data_setup.py` | `urlopen` on the four hard-coded download URLs. Same argument as `S603`/`S607` below it, but one call site does not justify disabling the rule repository-wide. |
+| `SIM108` in `demo/import_gpx_file.py` | Ruff wants a ternary. The `if`/`else` is four short lines that can be read out loud; the ternary is one long one that cannot. The prime directive wins. |
+| `W291` in `demo/01_timesheets.ipynb` | One trailing space inside a `CREATE TABLE` string, in a notebook that carries committed outputs. Covered by the `Style` rule below: pre-existing whitespace is left alone. |
+| `W292` in `demo/import_xls_timesheet.py` | Missing final newline, same rule. |
+
+So the check passing means **these four and nothing else**. Anything beyond them is new, and the
+question is which of two things it is: code that should change, or a decision that is not written down
+yet. The `ignore` list in `ruff.toml` is long and every entry names the decision behind it — do not add
+a bare code to it. An entry without a reason is worse than the finding.
 
 **Set `PYTHONIOENCODING=utf-8` on anything that prints notebook content.** The console is `cp1252` and
 the committed outputs contain non-ASCII from the sample data — a StackExchange display name is
