@@ -34,6 +34,7 @@ from connect_mdb_instance import connect_mdb_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
 from invoke_pg_query import invoke_pg_query  # noqa: E402
 from remove_kfk_topic import remove_kfk_topic  # noqa: E402
+from remove_mdb_collection import remove_mdb_collection  # noqa: E402
 from write_kfk_topic import write_kfk_topic  # noqa: E402
 from write_mdb_collection import write_mdb_collection  # noqa: E402
 from write_pg_table import write_pg_table  # noqa: E402
@@ -137,9 +138,11 @@ for table in ["order_event", "order_detail", "order_header", "customer"]:
         enable_exception=True
     )
 
-# The sibling calls Remove-MdbCollection here. There is no remove_mdb_collection in lib/ - see
-# lib/README.md - and pymongo drops a collection in one line, so this is that line.
-mdb_connection.drop_collection("Orders")
+remove_mdb_collection(
+    connection=mdb_connection,
+    collection="Orders",
+    enable_exception=True
+)
 
 # The topic goes with the tables. It used to be kept - a topic keeps its history on purpose, the
 # argument went - but not across restarts of the thing that writes it: the ids start again at 1
@@ -149,8 +152,9 @@ mdb_connection.drop_collection("Orders")
 # The history demo 6 teaches is across *readers*, not across application starts, and that is
 # untouched: a new group id still replays the whole topic, and the offsets are per group.
 #
-# Unlike drop_collection above this is not a one-liner - it needs an admin client, a delete and a
-# wait for the broker to catch up - so it is a lib/ function, and the sibling has the same one.
+# The two resets sit next to each other, as they do in the sibling, and the difference between
+# them is length rather than principle: dropping a collection is one pymongo call, while emptying a
+# topic needs an admin client, a delete and a wait for the broker to catch up.
 remove_kfk_topic(
     instance=db_config["kfk_instance"],
     topic=TOPIC,

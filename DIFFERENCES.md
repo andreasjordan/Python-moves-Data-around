@@ -432,6 +432,162 @@ returns, so `get_pg_data_reader` streams from the writer's point of view but not
 server-side cursor would change that. `Get-PgDataReader` does stream, so this is a real difference and
 not just an implementation detail.
 
+---
+
+### A streamed query is a generator, so it has not run yet
+
+**The sibling:** `Read-SqlQuery` writes one `[PSCustomObject]` per row to the pipeline inside its
+`while ($reader.Read())` loop. PowerShell streams that into whatever comes next, and the function has
+already started running by the time the caller sees anything.
+
+**Python:** the counterpart of writing to the pipeline is `yield`, so `read_sql_query`,
+`read_ora_query` and `read_pg_query` are generators. That is the natural translation and it is not a
+free one — three things about the call site change:
+
+- **Calling the function runs nothing.** No cursor is opened and no SQL is sent until the caller
+  iterates. `read_sql_query(...)` on a line by itself is inert; `list(read_sql_query(...))` is the query.
+- **A failure arrives on the first `next()`**, not on the call. With `enable_exception=True` that is
+  where the exception is raised, which means a `try` around the *call* catches nothing.
+- **The `return None` of the error contract becomes "stop yielding".** It is the same statement and it
+  has the same effect — the caller's loop ends rather than running on as if the query had worked — but
+  it returns no value to anybody, because a generator's return value is not what the caller sees.
+
+**Decision:** generators, and no `as_type`. `Read-*Query` has no `-As` either — it emits objects and
+nothing else — so there was nothing to select between.
+
+**And one consequence that is not cosmetic.** `invoke_*_query` commits right after `fetchall()`, because
+by then the read is over. A generator's read is over only when the last row has been handed over, so the
+commit is after the loop — and **a caller that abandons the generator half way leaves the transaction
+open.** On PostgreSQL that is the failure described in *A read opens a transaction nobody asked for*: an
+idle-in-transaction connection keeps its locks and the next `TRUNCATE` anywhere waits forever. The
+sibling cannot have this problem, because an ADO.NET command without an explicit transaction commits
+itself.
+
+**Rejected:** returning a list and calling it streamed, which is what a careless port does and would
+have made the function identical to `invoke_*_query` with a different name. **Also rejected:** a
+`batch_size` parameter to control `fetchmany`. The sibling reads row by row and has no such parameter,
+and the drivers already read ahead — oracledb in `arraysize` chunks — so it would have been a knob over
+something already being done.
+
+**Verified** against live containers on all three providers: the streamed rows equal what
+`invoke_*_query` returns row for row, including milliseconds and non-ASCII text; a bad query raises on
+the first `next()` with `enable_exception=True` and yields nothing without it; and the connection is
+still usable afterwards, which on PostgreSQL is what the rollback in the `except` block buys.
+
+### Table to file, and the three types JSON refuses
+
+**The sibling:** `Export-SqlTable` pipes each row's ordered hashtable through `ConvertTo-Json -Compress`
+into a `StreamWriter`. .NET converts every value on the way, so the function says nothing about types.
+
+**Python:** `json.dumps` refuses a `datetime`, a `Decimal` and a `UUID` outright, and the tables here
+hold all three. So `export_*_table` needs a `default=` hook where the sibling needs nothing.
+
+**Decision:** `str()` for those three, which is the decision `write_kfk_topic` already made for the same
+reason — and it is the one that reads back, because `str(datetime)` is exactly the format
+`datetime.fromisoformat` accepts. So an export can be loaded again by `import_*_table`, and the file
+format is deliberately the same one-JSON-object-per-line that `import_*_table` already detects.
+
+**Where it stops:** a binary column **raises**. `str(b"\x89PNG")` would write `"b'\\x89PNG'"` — a string
+that looks like a value and is not one, and that no importer would ever turn back into bytes. That is the
+same choice `import_sql_table` makes when it has no converter for a column type: fail rather than pass
+something through. `ConvertTo-Json` does better here, writing a `byte[]` as an array of numbers, so this
+is a place where the sibling is genuinely ahead. Nothing needs to export a `VARBINARY`, `bytea` or `BLOB`
+today, and when something does, this stops first instead of writing rubbish.
+
+**A smaller difference, and it costs nothing:** .NET's `Encoding.UTF8` emits a byte order mark, so the
+sibling's exports start with one and these do not. `import_*_table` defaults to `utf-8-sig`, whose decoder
+reads a file without a BOM perfectly well, so the round trip works either way.
+
+**Verified:** export then `import_*_table` into a second table, compared column by column against the
+source on SQL Server, PostgreSQL and Oracle — five rows including a `NULL` row, `ypercubeᵀᴹ`, a
+`NUMERIC`, and four timestamps whose milliseconds are all different and none of them zero. All three
+providers round-trip every value. The `NULL` row comes back as `null` in the JSON rather than the string
+`"None"`, which is the mistake this check exists to catch.
+
+### The same question in three units, and a column that is not a column
+
+**The sibling:** `Get-SqlTableInformation` returns `Table` / `Pages` / `Rows`, the Oracle one returns
+`Blocks`, the PostgreSQL one returns `Bytes`. Three names for the same idea, because
+`sys.allocation_units`, `user_segments` and `pg_relation_size` count in three different things.
+
+**Decision:** keep all three names and all three units. Normalising them to bytes would mean multiplying
+by a page size this code does not know, and it would hide the most interesting thing about the family —
+that "how big is this table" has three different answers depending on who you ask. These functions are
+also the only ones in `lib/` whose name says *column metadata* while what they return is a row count and
+a size; that is the sibling's shape and it was not worth renaming a grid cell over.
+
+**Python:** a DataFrame rather than one object per table, because that is the canonical shape for data in
+flight here and it is what a notebook renders without being asked.
+
+**Three things came out of writing these that were not obvious:**
+
+- **`as_type="single_value"` is not `As = 'SingleValue'`.** The sibling uses `SingleValue` for both "the
+  count" and "the whole column of table names", because PowerShell expands the column into an array.
+  `single_value` returns the first value of the first row and nothing else, so the list of names is read
+  with `as_type="list"`. These are the first callers to hit that, and a careless port would have listed
+  exactly one table and looked like it worked.
+- **The sibling's `LIKE 'BASE_TABLE'` finds `'BASE TABLE'` only because `_` is a single-character
+  wildcard in `LIKE`.** Measured on the lab: `table_type = 'BASE TABLE'` and `table_type LIKE
+  'BASE_TABLE'` both return 19 tables, `table_type = 'BASE_TABLE'` returns 0. It reads like a typo that
+  happens to work, so the Python version spells the value out.
+- **Identifier folding is per provider**, `.lower()` for PostgreSQL and `.upper()` for Oracle. The
+  sibling lower-cases in the PostgreSQL function and does not upper-case in the Oracle one, which means
+  `Get-OraTableInformation -Table users` reports `Blocks = 0` — a wrong answer that reads like a real
+  one. Fixed there in the same turn; see the note below on what else that fix touched.
+
+### The second kind of import between lib/ files
+
+**The sibling:** `Get-SqlTableInformation` is three `Invoke-SqlQuery` calls. Everything in `lib/` is
+dot-sourced into one session, so calling one library function from another costs nothing and is
+invisible.
+
+**Python:** it costs an import line, and this is the first time a `lib/` file imports a **public**
+function from another `lib/` file. That is a different thing from the `_prepare_query_and_params`
+exception recorded under *The first `_` helper that is used outside its own file*: that one shares a
+private helper, this one calls the public surface.
+
+**Decision:** import it. The alternative was to reimplement the three queries against a raw cursor,
+which would have hidden the one thing the two files most obviously have in common — that this function
+*is* three queries and nothing else.
+
+**Rejected:** a shared `_query` helper module for the three, which would have added a file that exists
+only to avoid an import, and broken the one-public-function-per-file rule to do it.
+
+### Three parameters that were not ported, and what each would have cost
+
+**The sibling:** `-ParameterTypes` and `-QueryTimeout` on `Invoke-*Query`, `Read-*Query` and
+`Get-*DataReader`; `-Last` on `Read-MdbCollection`.
+
+**Decision: none of the three, and each for its own reason.** They were looked at together, deliberately,
+because "the grid is full but three parameters are missing" is the kind of gap that gets rediscovered.
+
+| Parameter | What Python would need | Why not |
+| --- | --- | --- |
+| `-ParameterTypes` | `cursor.setinputsizes` on oracledb and pyodbc; **nothing at all on psycopg**, which infers the type from the Python object and offers no per-parameter override | One cell of the row would stay empty whatever was built, and no demo passes it. `invoke_ora_query` already uses `setinputsizes` internally for the >4000-character CLOB guard, which is the one case that actually came up. |
+| `-QueryTimeout` | three unrelated mechanisms: `Connection.timeout` in pyodbc, `SET statement_timeout` in PostgreSQL, `Connection.call_timeout` in oracledb | All three live on the **connection**, not on the statement, so a per-call parameter would have to set and restore one — a defensive layer around something no demo uses. Note that the `# TODO` in `invoke_sql_query` understates it: pyodbc *does* have a query timeout, it is `Connection.timeout` and not the `cursor.timeout` the commented-out line reaches for. |
+| `-Last` | reverse the sort and limit | Only means anything alongside a sort, pymongo has no equivalent, and no demo uses it. |
+
+**Rejected:** adding all three for grid symmetry. The prime directive is readability on a projector, and
+three parameters across seven functions that nothing calls is surface, not teaching. **Also rejected:**
+saying nothing and leaving them as apparent oversights, which is what this file exists to prevent.
+
+**A finding on the other side, fixed in the same turn.** Porting `Read-*Query` meant reading it, and
+`-ParameterTypes` in `Read-PgQuery` and `Read-OraQuery` set `$parameter.SqlDbType` — a property that
+exists only on `SqlParameter`. Checked against the DLLs the repository downloads:
+
+```
+NpgsqlParameter:  DbType, NpgsqlDbType
+OracleParameter:  DbType, OracleDbType, OracleDbTypeEx
+SqlParameter:     DbType, SqlDbType
+$p.SqlDbType = 'Int'  ->  The property 'SqlDbType' cannot be found on this object.
+```
+
+All three `Read-*Query.ps1` files were a copy of the SQL Server one with the connection type changed, so
+`Read-OraQuery` was also missing the `BindByName = $true` and the CLOB guard that `Invoke-OraQuery` and
+`Get-OraDataReader` both carry — without `BindByName`, Oracle binds named parameters by **position**,
+which is the quiet kind of wrong. `Invoke-*Query` and `Get-*DataReader` were correct all along. Nothing
+calls `-ParameterTypes`, which is why none of it had ever been noticed.
+
 ## Geodata
 
 ### The namespace nobody mentions
@@ -923,6 +1079,31 @@ collection has no columns, so `write_mdb_collection` has nothing to ask and no c
 **Verified:** all 12220 documents round-trip with their types. `_id` and the counters come back as
 `int`, the dates as `datetime` — and BSON stores a date to millisecond precision, which is exactly
 what these files carry.
+
+### A collection to drop has to be named
+
+**The sibling:** `Remove-MdbCollection` takes `-Collection`, and it is **optional**. Without it the
+function falls back to `$Connection.Collection`, because `Connect-MdbInstance` returns a
+`PSCustomObject` that carries a client, a database *and* a collection — the Mdbc module needs all three.
+
+**Python:** `connect_mdb_instance` returns a plain pymongo `Database`, for the reasons in *A connection
+that is not a connection*. A `Database` has no default collection, so there is nothing to fall back to
+and `collection` is required.
+
+**Decision:** required, and no `collection=None` branch. The parameter that would make it optional does
+not exist on this side of the port; inventing a "current collection" to hold on the connection object
+would have been building the sibling's `PSCustomObject` back for one function's benefit.
+
+**Why it became a function at all.** It is one pymongo call, and for a long time
+`docker/photoservice-app.py` simply made that call inline — recorded in `lib/README.md` as an omission
+nobody had decided. What settles it is the line it sits next to: `remove_kfk_topic` is the same idea for
+a topic and is thirty lines, because a topic needs an admin client, a delete and a wait for the broker.
+Having one of the pair inline and one from `lib/` made the two look like different kinds of operation.
+They are the same operation, and **the difference between them is length rather than principle** — which
+is only visible when both are called the same way.
+
+**Verified:** a collection with seven documents is gone from `list_collection_names()` afterwards, and
+dropping a collection that never existed is quiet rather than an error — the same as the sibling.
 
 ## MinIO
 

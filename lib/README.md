@@ -17,7 +17,7 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 41 functions. This one has twenty-three.
+`lib/` has 41 functions. This one has thirty-three.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
@@ -243,8 +243,9 @@ is used outside the file it lives in, and it is deliberate — see `DIFFERENCES.
 scenario is what needs it: "transfer everything after the id the target already has" is the whole
 incremental technique, and the id is a parameter.
 
-Two parameters of the sibling are still missing: `-ParameterTypes`, which `invoke_*_query` does not have
-either, and `-QueryTimeout`, for the same reason it is missing from `invoke_sql_query`.
+Two parameters of the sibling are missing here, as they are from `invoke_*_query`: `-ParameterTypes`
+and `-QueryTimeout`. Both are **decisions rather than omissions** — see the two entries in
+`DIFFERENCES.md`, which say what each of the three drivers would have needed.
 
 **`-Transaction` needs no counterpart here, and that is not an omission.** A Python cursor is created on
 a connection and is already inside whatever transaction that connection has open, so there is nothing
@@ -255,6 +256,87 @@ block without passing anything to these functions.
 before the first `fetchmany` returns, so `get_pg_data_reader` streams from the writer's point of view
 but not from the server's. A server-side cursor — `connection.cursor(name=...)` — would change that,
 and is the thing to reach for if a table ever stops fitting in memory.
+
+### `read_sql_query(connection, query, parameter_values=None, enable_exception=False)`, `read_ora_query(...)` and `read_pg_query(...)`
+
+The same query as `invoke_*_query`, streamed instead of collected. **These three are generators**, which
+is the Python counterpart of the sibling writing one `[PSCustomObject]` per row to the pipeline: they
+yield one dict per row and never hold more than one in memory.
+
+Three things follow from being a generator, and all three are visible at the call site:
+
+- **Nothing happens until the caller starts iterating.** `read_sql_query(...)` on its own opens no
+  cursor and sends no SQL. `list(read_sql_query(...))` is what runs the query.
+- **A failure therefore surfaces on the first `next()`, not on the call.** With
+  `enable_exception=True` the exception is raised there; without it the message is logged and the
+  generator simply ends, which is what the contract's `return None` means for a function that yields.
+- **The transaction the read opens is only ended once the last row has been handed over.** A caller
+  that abandons the generator half way leaves it open. On PostgreSQL that is the one worth knowing
+  about, because an idle-in-transaction connection keeps its locks and the next `TRUNCATE` anywhere
+  waits for it — see the entry in `DIFFERENCES.md`.
+
+There is no `as_type`, because the sibling's `Read-*Query` has no `-As` either: it emits objects and
+nothing else. `parameter_values` works exactly as it does in `invoke_*_query` and is the same
+`_prepare_query_and_params` doing the work. `read_ora_query` carries the >4000-character CLOB guard as
+well, for the reason `invoke_ora_query` gives.
+
+The psycopg caveat above applies to `read_pg_query` too: it streams from the caller's point of view but
+not from the server's.
+
+### `export_sql_table(connection, table, path, batch_size=1000, encoding="utf-8", enable_exception=False)`, `export_ora_table(...)` and `export_pg_table(...)`
+
+The inverse of `import_*_table`: `SELECT * FROM table` written to `path` as **one JSON object per
+line**, which is one of the two formats `import_*_table` reads. So a table exported here can be loaded
+straight back, into the same database or into another system — and that round trip is how these three
+were checked, value by value rather than by row count.
+
+`batch_size` only says how often progress is logged. A `SELECT COUNT(*)` runs first, for no other
+reason than to put a percentage in that progress.
+
+Two things are worth knowing about the JSON:
+
+- **`json.dumps` refuses a `datetime`, a `Decimal` and a `UUID`**, and these tables hold all three.
+  `_json_default` converts them with `str()` — the same decision `write_kfk_topic` makes — and that is
+  the conversion that reads back, because `str(datetime)` is exactly what `datetime.fromisoformat`
+  accepts. Milliseconds survive the round trip on all three providers.
+- **A binary column is an error, not a silent passthrough.** `str(b"\x89PNG")` would write
+  `"b'\\x89PNG'"`, which looks like a value and is not one, so `_json_default` raises instead — the
+  same choice `import_sql_table` makes for a column type it has no converter for. Nothing needs to
+  export a `VARBINARY`, `bytea` or `BLOB` today; when something does, this fails loudly first.
+
+The default encoding is `utf-8` and not the `utf-8-sig` that `import_*_table` uses. The sibling writes
+a byte order mark, because .NET's `Encoding.UTF8` emits one; this does not, and it does not matter —
+the `utf-8-sig` decoder reads a file without a BOM perfectly well, so the round trip works either way.
+
+**DIFFERENCE:** the sibling opens its `StreamWriter` first and closes it in a `finally`. Here the file
+is opened in a `with` block around the loop, which is the same guarantee with less around it — so a
+bad path is reported after the count query rather than before it.
+
+### `get_sql_table_information(connection, table=None, enable_exception=False)`, `get_ora_table_information(...)` and `get_pg_table_information(...)`
+
+Row count and size per table, as a **DataFrame**. With no `table` it lists every table in the current
+schema; `table` takes one name or a list of them — a bare string is wrapped, so both call sites read the
+same as the sibling's `[string[]]$Table`.
+
+**The size column has a different name and a different unit per provider, and that is the point of
+these three rather than an inconsistency:** `Pages` on SQL Server, `Blocks` on Oracle, `Bytes` on
+PostgreSQL, because `sys.allocation_units`, `user_segments` and `pg_relation_size` answer in those
+units. The sibling names them the same way. Normalising them to one unit would have invented arithmetic
+nobody asked for and hidden the interesting part.
+
+Three notes:
+
+- **These are the only functions in `lib/` that call another public `lib/` function.** Each one is three
+  `invoke_*_query` calls, exactly as the sibling is, and dot-sourcing makes that free over there while
+  here it needs an import. See `DIFFERENCES.md` — this is a different thing from the
+  `_prepare_query_and_params` import, which is a private helper.
+- **`as_type="single_value"` is not the sibling's `As = 'SingleValue'`**, and this is the first caller to
+  notice. PowerShell expands the whole first column into an array; this returns the first value of the
+  first row and nothing else. So the list of table names is read with `as_type="list"`, and only the two
+  scalars use `single_value`.
+- **Identifiers are folded per provider**, `.lower()` for PostgreSQL and `.upper()` for Oracle. Without
+  it, `get_ora_table_information(table="users")` finds no segment and reports `Blocks = 0` — a wrong
+  answer that reads like a real one.
 
 ### `connect_mdb_instance(instance, database="admin", username=None, password=None, enable_exception=False)`
 
@@ -307,8 +389,26 @@ as pymongo produced them. There is no `list`, because a document already *is* a 
 sibling's: `-Filter @{ Location = 'Canada' }` becomes `filter={"Location": "Canada"}`. `filter`
 shadows the builtin, which is deliberate — the naming rule says parameters keep the sibling's names.
 
-`-Last` is missing. pymongo has no equivalent, it would mean reversing the sort and limiting, and no
-demo uses it.
+`-Last` is missing, and that is a decision rather than an oversight: pymongo has no equivalent, it would
+mean reversing the sort and limiting, and no demo uses it. The entry in `DIFFERENCES.md` says what was
+rejected.
+
+### `remove_mdb_collection(connection, collection, enable_exception=False)`
+
+Drops `collection`. **The shortest function in `lib/`**, and that is what it is for rather than something
+to apologise for: it sits next to `remove_kfk_topic` in `docker/photoservice-app.py`, where the two clear
+the previous run together, and the contrast between them is the lesson. Dropping a collection is one
+pymongo call; emptying a topic needs an admin client, a delete and a wait for the broker.
+
+A collection that is not there is not an error — MongoDB has nothing to drop and says so quietly, which
+is what the sibling's `Remove-MdbcCollection` does too.
+
+**DIFFERENCE:** the sibling's `-Collection` is optional, because `Connect-MdbInstance` returns a
+`PSCustomObject` that already holds a collection to fall back on. `connect_mdb_instance` returns a plain
+pymongo `Database`, which has no default collection, so the name is required here.
+
+Dropping is also what `truncate_collection=True` does inside `write_mdb_collection`, so the two overlap
+on purpose: one is "empty it before writing", the other is "empty it and write nothing".
 
 ### `connect_kfk_producer(instance, enable_exception=False)` and `connect_kfk_consumer(instance, group_id, from_beginning=False, enable_exception=False)`
 
@@ -374,8 +474,7 @@ Deleting a topic is neither producing nor consuming, so neither of the two clien
 where confluent-kafka keeps operations of this kind. The sibling's `Remove-KfkTopic` takes
 `-Instance` for the same reason.
 
-`docker/photoservice-app.py` calls it next to its `drop_collection("Orders")` when it clears the
-previous run. The application restarts its ids at 1 every time it starts, so a topic that outlived
+`docker/photoservice-app.py` calls it next to `remove_mdb_collection` when it clears the previous run. The application restarts its ids at 1 every time it starts, so a topic that outlived
 the tables would hold several customers with id 1, and `demo/06_eventstreaming.ipynb` would replay
 all of them into one primary key.
 
@@ -394,16 +493,24 @@ and **—** is a cell that makes no sense for that provider:
 | --- | --- | --- | --- | --- | --- |
 | Connect | ✔ `connect_sql_instance` | ✔ `connect_ora_instance` | ✔ `connect_pg_instance` | ✔ `connect_mdb_instance` | ✔ `connect_kfk_producer` + `connect_kfk_consumer` |
 | Query, all at once | ✔ `invoke_sql_query` | ✔ `invoke_ora_query` | ✔ `invoke_pg_query` | — | — |
-| Query, streamed | `read_sql_query` | `read_ora_query` | `read_pg_query` | ✔ `read_mdb_collection` | ✔ `read_kfk_topic` |
+| Query, streamed | ✔ `read_sql_query` | ✔ `read_ora_query` | ✔ `read_pg_query` | ✔ `read_mdb_collection` | ✔ `read_kfk_topic` |
 | Cursor for streaming into a writer | ✔ `get_sql_data_reader` | ✔ `get_ora_data_reader` | ✔ `get_pg_data_reader` | — | — |
 | Bulk write | ✔ `write_sql_table` | ✔ `write_ora_table` | ✔ `write_pg_table` | ✔ `write_mdb_collection` | ✔ `write_kfk_topic` |
 | File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
-| Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
-| Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
-| Drop | — | — | — | — | ✔ `remove_kfk_topic` |
+| Table → file | ✔ `export_sql_table` | ✔ `export_ora_table` | ✔ `export_pg_table` | — | — |
+| Column metadata | ✔ `get_sql_table_information` | ✔ `get_ora_table_information` | ✔ `get_pg_table_information` | — | — |
+| Drop | — | — | — | ✔ `remove_mdb_collection` | ✔ `remove_kfk_topic` |
 
-The grid is intentionally not square, for the same reasons as in the sibling repository: MongoDB has no
-column metadata to return and already streams.
+**Every cell the sibling fills is filled**, which was not true until the ten functions above were
+written. The remaining `—` are cells that make no sense for that provider, not work left over: MongoDB
+has no column metadata to return and already streams, and a table is not a thing Kafka has. The grid is
+intentionally not square, for the same reasons as in the sibling repository.
+
+**Nothing in `demo/` calls the nine `read_*_query`, `export_*_table` and `get_*_table_information`
+functions, and nothing does in the sibling either** — they exist there too without a caller. They are
+here so that the two libraries can be shown side by side without a hole in one of them, and they were
+checked against the live containers rather than only read: the export/import round trip compares every
+value against its source, which is the check a row count could not have made.
 
 **Kafka is the first column with two functions in one cell.** Every other provider has one connection
 that both reads and writes; Kafka has a producer and a consumer, which are separate clients. The
@@ -418,16 +525,20 @@ carries the native librdkafka while over there it is a second package that has t
 directory, per platform. For Oracle it saved more than the download: `oracledb` in thin mode needs no
 Oracle Instant Client at all.
 
-The **MongoDB cell of the Drop row is empty**, where the sibling has `Remove-MdbCollection`. Dropping a
-collection is what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it
-on its own — that omission is a decision nobody has made, rather than one that has been made.
-`docker/photoservice-app.py` is the one caller that wants it at startup, with no documents to write;
-it calls `connection.drop_collection("Orders")` directly, because that is the whole function.
+**The Drop row is where the two providers disagree about how much work a drop is**, and both cells are
+now functions. `remove_mdb_collection` is a single pymongo call; `remove_kfk_topic` is an admin client, a
+delete and a wait for the broker. The two sit next to each other in `docker/photoservice-app.py`, and the
+difference between them is length rather than principle — which is easier to see now that both come from
+`lib/` and only one of them is short.
 
-**`remove_kfk_topic` is on the same line of that row and did become a function**, which is the useful
-contrast: emptying a topic is an admin client, a delete and a wait for the broker, not a one-liner. The
-two sit next to each other in `photoservice-app.py`, one inline and one from `lib/`, and the difference
-between them is length rather than principle.
+**Three parameters of the sibling are deliberately not here**, and each has an entry in `DIFFERENCES.md`
+saying what the driver would have needed and what was rejected:
+
+| Sibling parameter | Where | Why not |
+| --- | --- | --- |
+| `-ParameterTypes` | `invoke_*_query`, `read_*_query`, `get_*_data_reader` | Three drivers, three mechanisms, and psycopg has none at all — it infers from the Python type. No demo passes it. |
+| `-QueryTimeout` | the same three families | Implementable on all three and differently on each: `Connection.timeout` in pyodbc, `SET statement_timeout` in PostgreSQL, `Connection.call_timeout` in oracledb. All three live on the *connection* rather than the statement, so a per-call parameter would have to save and restore one. |
+| `-Last` | `read_mdb_collection` | pymongo has no equivalent; it would mean reversing the sort and limiting, and it only means anything alongside a sort. |
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.

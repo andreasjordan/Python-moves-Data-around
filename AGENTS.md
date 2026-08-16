@@ -43,7 +43,7 @@ list of bonus sections, each for a stated reason — see "What is not ported".
 | `demo/04_photoservice.ipynb` | JPEGs into PostgreSQL `bytea` and on into SQL Server `VARBINARY(MAX)`, then incremental transfers against the running application, transactions, and CDC. **The order counts are not reproducible** — the application keeps writing. |
 | `demo/05_projectstatus.ipynb` | One Excel form into SQL Server, where four of the eight rows are rejected for four different reasons. **Reproducible**, unlike the other five — the sample data is fixed, so the narration quotes its counts. |
 | `demo/06_eventstreaming.ipynb` | The outbox table, then the same events on a Kafka topic, offsets, and a replay that rebuilds the target from the log alone. **The counts are not reproducible** — the shop keeps producing. It no longer grows *across* runs: the application empties the topic when it starts. **Needs the application to have been running for about two minutes**, and the notebook says so at the top: before then the topic holds nothing but `Added customer` and every count is zero. A run inside that window looks broken and is not. |
-| `lib/` | Twenty-three functions. The grid in `lib/README.md` says which cells are deliberately empty. |
+| `lib/` | Thirty-three functions, and **every cell the sibling fills is now filled**. The grid in `lib/README.md` says which cells stay empty because they make no sense for that provider. Nine of the thirty-three — `read_*_query`, `export_*_table`, `get_*_table_information` — have no caller in `demo/`, and neither do their counterparts in the sibling; they exist so the two libraries can be shown side by side without a hole in one. |
 | The charts in `Report.xlsx` | **Open, and parked on purpose.** The pie and bar chart that the last cells of `demo/01_timesheets.ipynb` create are correct but do not look good enough yet. Do not polish them as a side effect of another task — see below. |
 | The setup chain | Ported to Python; `01_setup.ps1` is the only remaining PowerShell file, because it is what Windows starts. It **builds only** — it stops the containers again at the end, so it can be run in this repository and then in the sibling, in either order. |
 | `06_test_connections.py` | One block per scenario and per provider. **Run twice by `01_setup.ps1`** — once inside WSL2 and once on Windows, because the notebooks run on the Windows interpreter and nothing else checks that one. |
@@ -414,10 +414,17 @@ The prefixes are `sql` (SQL Server), `ora` (Oracle), `pg` (PostgreSQL), `mdb` (M
 (Kafka). The sibling also has `mio` (MinIO), which is not ported. Helper functions that are not part of
 the public surface are prefixed with `_` and live in the same file as their caller.
 
-**There is exactly one exception, and it is deliberate:** each `get_*_data_reader` imports
-`_prepare_query_and_params` from its own `invoke_*_query`, rather than carrying a fourth, fifth and
-sixth copy of that regex. Do not "fix" it by copying the helper back, and do not generalise it into a
-shared module either — the reasoning is in `DIFFERENCES.md`.
+**There is exactly one exception for a `_` helper, and it is deliberate:** each `get_*_data_reader` and
+each `read_*_query` imports `_prepare_query_and_params` from its own `invoke_*_query`, rather than
+carrying six more copies of that regex. Do not "fix" it by copying the helper back, and do not
+generalise it into a shared module either — the reasoning is in `DIFFERENCES.md`.
+
+**Importing a *public* `lib/` function from another `lib/` file is a separate thing and is also
+allowed**, but only where the sibling does the same. Today that is the three
+`get_*_table_information` functions, which are three `invoke_*_query` calls each exactly as
+`Get-SqlTableInformation` is three `Invoke-SqlQuery` calls. Dot-sourcing makes that free in the
+sibling; here it needs an import line, and reimplementing the queries against a raw cursor to avoid
+it would have hidden what the two files have in common.
 
 `lib/README.md` has the index of what exists and which cells of the grid are still empty.
 
