@@ -313,10 +313,11 @@ minute if you want to look into it.
 Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
 installed for your user account and not for root, which is why the later steps do not use `--user root`.
 
-The whole run takes about ten minutes - measured at 7:51 into a WSL2 that the sibling repository had
-already set up, so docker, 7-Zip and the two large database images were there and only pyenv, the
-packages and this repository's own containers were new. Installing this one first costs the rest of
-that. The last line of the script reports the total, which is the number to trust on your machine.
+The whole run takes about seven minutes - measured at 7:51 and 7:09 on two runs into a WSL2 that the
+sibling repository had already set up, so docker, 7-Zip and the two large database images were there
+and only pyenv, the packages and this repository's own containers were new. Installing this one
+first costs the rest of that. The last line of the script reports the total, which is the number to
+trust on your machine.
 
 If you are installing both repositories, see
 [Sharing one WSL2 installation with the sibling repository](#sharing-one-wsl2-installation-with-the-sibling-repository).
