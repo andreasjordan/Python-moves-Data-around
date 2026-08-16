@@ -134,6 +134,53 @@ prevents is silent or misleading:
 `04` also sources `docker/.env`, so the passwords in the probes are not a fourth copy of the literal.
 That file is valid shell as well as a Compose env file, which is why this works.
 
+### The setup owns WSL2, not your machine
+
+**The setup installs into WSL2 and into this repository's working tree. It installs nothing on the
+host and changes no host configuration.** WSL2 itself, the Windows Python, the packages in
+`requirements-windows.txt` and the Microsoft ODBC Driver 18 are the user's to install. This is a rule
+as of 2026-08-16, and it is the sibling's rule too — over there the offending line was a
+`Set-PSRepository … -InstallationPolicy Trusted` on the host, which is not a demo repository's
+decision to make. Here it was `pip install` into whatever interpreter happened to be on the PATH.
+
+`00_check_host.ps1` is how that rule stays usable. It checks what the user has to provide, names
+**every** missing piece at once with the command that installs it, and stops the setup. It changes
+nothing, so it is safe to run at any time. This repository now runs **nothing** on the host except
+that check — the sibling still downloads its drivers into `lib/`, because it has drivers to download
+and pip covers everything here.
+
+Four things worth knowing before touching it:
+
+- **It has no dependencies, deliberately**, and it is PowerShell rather than Python for the same
+  reason `01_setup.ps1` is: it runs before the Python side is known to work, and a missing `python`
+  is one of the things it reports.
+- **It follows the `-r requirements.txt` include** rather than reading the shared list separately, so
+  `requirements-windows.txt` stays the one list for this side. Nothing else enumerates the packages.
+- **It normalises package names per PEP 503 and strips extras**, because `psycopg[binary]` is listed
+  by pip as `psycopg`, and `confluent-kafka` and `confluent_kafka` are the same package.
+- **It reads the ODBC driver out of the registry** rather than calling `Get-OdbcDriver`, because it
+  imports nothing. The name it looks for is the one hard-coded in `lib/connect_sql_instance.py` and
+  the two have to match. This is the one prerequisite pip cannot install, and until now the only way
+  to discover it was missing was a failing connection.
+
+**It checks the default WSL2 distribution by starting it and asking Linux a question**
+(`wsl -e uname -r`), not by parsing `wsl --list --verbose`. That output is UTF-16LE on Windows and
+reading it is a well known trap; an answer that comes from inside the distribution has no such
+problem, and it proves the thing that matters — that a default distribution exists and starts.
+
+**No minimum Python version is asserted.** The repository has never named one, and inventing a floor
+would be a rule nobody has decided. The version is printed instead, which is enough to recognise a
+wrong interpreter. What *is* checked is that `python` answers at all: on Windows it is often the
+Microsoft Store stub, which is on the PATH and does nothing.
+
+### Every step of `01_setup.ps1` announces itself
+
+`Write-Step` prints a banner before each step, and the slow ones say roughly how long they take.
+This exists because **a quiet stretch is indistinguishable from a hung script**: the first step used
+to produce no output while it ran `pip install`, and `04_docker_compose.sh` is silent for up to
+fifteen minutes while Oracle creates its database. The Windows port wait prints one line per port for
+the same reason — a forward that lags the others by minutes looked exactly like a hang.
+
 ### `01_setup.ps1` builds, `start_demo.ps1` runs
 
 The two are deliberately separate, and the split is what lets **one WSL2 installation serve both
@@ -337,8 +384,11 @@ should be.
 owner has to. What an agent **can** and must do, in the same turn as the code that needs it:
 
 **Add it to `requirements.txt`. That is the whole procedure.** `03_python_setup.sh` installs that file
-inside WSL2 and `01_setup.ps1` installs it on Windows, so both sides pick it up. Then tell the owner to
-re-run `01_setup.ps1`, which is what actually installs it on both.
+inside WSL2, and `00_check_host.ps1` reads it — through the `-r` include in
+`requirements-windows.txt` — to check the Windows side. Then tell the owner to re-run `01_setup.ps1`:
+it installs the package inside WSL2 and names it as missing on Windows, with the `pip install` line
+that fixes it. **The setup no longer installs it on the host**; see "The setup owns WSL2, not your
+machine" above.
 
 `requirements-windows.txt` is `-r requirements.txt` plus `notebook`, and a package belongs in it only
 if Windows needs it and WSL2 does not. `notebook` is the only one today, because no notebook is ever
@@ -354,9 +404,10 @@ more except `requirements.txt`: `README.md` prints the `pip install -r` command 
 the `Loading model` section below points here. **Do not reintroduce a second copy of the list
 anywhere**, however convenient it looks — that is the entire reason these files exist.
 
-The Windows install is the **first** step of `01_setup.ps1`, before any WSL2 work. It is the only step
-that costs nothing when it fails, and putting it last meant finding a broken Windows interpreter after
-a quarter of an hour of Oracle starting up.
+The Windows **check** is the first step of `01_setup.ps1`, before any WSL2 work — it used to be a
+Windows `pip install` and the position is the reason either way. It is the only step that costs
+nothing when it fails, and putting it last meant finding a broken Windows interpreter after a quarter
+of an hour of Oracle starting up.
 
 ## The sample data on disk
 
@@ -458,6 +509,7 @@ imported.
 
 | Path | What it is |
 | --- | --- |
+| `00_check_host.ps1` | Checks that this machine has what the setup will not install: `python`, the packages in `requirements-windows.txt`, the Microsoft ODBC Driver 18, and a WSL2 default distribution with `apt-get`. Names every missing piece at once with the command that fixes it, and changes nothing. `01_setup.ps1` runs it first; it is also safe to run alone. |
 | `01_setup.ps1` … `06_test_connections.py` | One-time setup, started from Windows, shells into WSL2. `01_setup.ps1` orchestrates the rest and stays PowerShell because Windows starts it; `02` and `03` are shell scripts, `05` and `06` are Python. It **builds only** — it stops the containers again at the end, so it can be run for both repositories in turn. |
 | `07_check_ports.ps1` | **Not part of the setup sequence** — `01_setup.ps1` does not run it. A diagnostic for when the Windows half of the setup cannot reach a database: it prints, per published port, whether Windows has a `wslrelay` listener and whether a connection gets through. Read-only. |
 | `requirements.txt`, `requirements-windows.txt` | The one list of Python packages, and the Windows-only addition to it. Both setup steps install from these; nothing else enumerates the packages. |

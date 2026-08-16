@@ -11,11 +11,21 @@ I will present this at the [IT-Tage 2026 in Frankfurt](https://www.ittage.inform
 
 Currently, I do it "quick and dirty".
 
-I have installed Python 3.14.6 on my Windows 11 system, without using virtual environments. I will later use and document a cleaner setup.
+**The setup installs into WSL2 and into this repository. It installs nothing on your machine and
+changes nothing about how your machine is configured.** What your machine needs is yours to install,
+and the four things below are the whole list. `00_check_host.ps1` checks them, names every one that
+is missing together with the command that installs it, and changes nothing — run it whenever you
+like, and `01_setup.ps1` runs it first anyway:
 
-The packages are installed by `01_setup.ps1`, which also runs `06_test_connections.py` on Windows —
-everything else in the setup happens inside WSL2, but this is the side the notebooks run on. It is the
-same command you would run by hand:
+```
+.\00_check_host.ps1
+```
+
+**1. Python on Windows.** I have installed Python 3.14.6 on my Windows 11 system, without using
+virtual environments. I will later use and document a cleaner setup. The notebooks run on this
+interpreter, not the one in WSL2, which is why it has to be right.
+
+**2. The packages.**
 
 ```
 python -m pip install -r requirements-windows.txt
@@ -24,12 +34,15 @@ python -m pip install -r requirements-windows.txt
 `requirements.txt` is the list both sides share; `requirements-windows.txt` includes it and adds
 `notebook`, which only Windows needs. Nothing is pinned and there is no virtual environment.
 
-I have installed the "SQL Server ODBC driver" using these links:
+**3. The "SQL Server ODBC driver".** pip cannot install this one:
 - https://learn.microsoft.com/sql/connect/odbc/
 - https://go.microsoft.com/fwlink/?linkid=2358430
 
 Oracle needs nothing of that kind: `oracledb` runs in "thin mode" and speaks the Oracle network
 protocol itself, so there is no Oracle Instant Client to install.
+
+**4. WSL2**, with a default distribution — see [Install WSL2](#install-wsl2) below. Everything else
+the setup needs goes inside it, and you can throw it away and start again at any time.
 
 I use VS Code to work with Jupyter Notebooks.
 
@@ -292,7 +305,7 @@ for most of them, and finishes on the Windows side:
 
 | Step | Runs as | What it does |
 | --- | --- | --- |
-| `pip install -r requirements-windows.txt` | you, on Windows | The packages the notebooks need. First, because it is the only step that costs nothing when it fails |
+| `00_check_host.ps1` | you, on Windows | Checks that this machine has Python, the packages, the ODBC driver and a WSL2 distribution, and stops with a list if it has not. Installs nothing. First, because it is the only step that costs nothing when it fails |
 | `02_wsl2_setup.sh` | root, in WSL2 | Microsoft ODBC Driver 18, Docker, 7-Zip, and pyenv with Python 3.14.6 |
 | `03_python_setup.sh` | you, in WSL2 | `pip install -r requirements.txt` |
 | `04_docker_compose.sh` | root, in WSL2 | Waits for the docker daemon, starts the containers, and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
@@ -300,6 +313,10 @@ for most of them, and finishes on the Windows side:
 | `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |
 | `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
 | `docker compose stop` | root, in WSL2 | Stops the containers again. The setup is finished; `start_demo.ps1` is what starts a demo |
+
+Every step announces itself before it runs, and the slow ones say roughly how long they take —
+`04_docker_compose.sh` is quiet for up to fifteen minutes the first time, because Oracle is creating
+its database, and a quiet stretch with no output is hard to tell from a script that has hung.
 
 The first and last rows are not an afterthought. The notebooks run on the Windows Python, not on the
 one in WSL2, so without them the setup can finish green while a notebook still fails on a missing

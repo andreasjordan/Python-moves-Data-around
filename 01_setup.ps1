@@ -1,36 +1,56 @@
 $ErrorActionPreference = 'Stop'
 
-# Install the Python packages on Windows
-# Everything else in this script happens inside WSL2, but the notebooks run here, against the Windows
-# Python - so this is the side that has to be able to reach the databases in the end.
-# It is first because it is the only step that costs nothing when it fails: a missing "python" or a
-# broken package is found in seconds, rather than after a quarter of an hour of Oracle starting up.
-# requirements-windows.txt is requirements.txt plus "notebook", which is the only package that
-# differs between the two sides - WSL2 never opens a notebook.
-python -m pip install -r "$PSScriptRoot\requirements-windows.txt"
-if ($LASTEXITCODE -ne 0) { throw 'failure installing the Python packages on Windows'}
+# Every step announces itself before it runs, and the slow ones say how long they take.
+#
+# Two stretches of this script are quiet for minutes - 04_docker_compose.sh while Oracle creates
+# its database, and the port wait near the end - and a quiet stretch with no output is
+# indistinguishable from a script that has hung. Saying what is happening and roughly how long it
+# takes is the whole fix.
+#
+# This helper follows no contract from lib/, which is for Python.
+function Write-Step {
+    param ([string]$Message, [string]$Duration)
+    Write-Host ''
+    Write-Host "==> $Message" -ForegroundColor Cyan
+    if ($Duration) { Write-Host "    $Duration" -ForegroundColor DarkGray }
+}
+
+# Check this machine
+# The setup owns WSL2 and this repository, and nothing else - so the things it will not install are
+# checked first and named all at once. This step replaces the "pip install" that used to run here:
+# the notebooks run on the Windows Python, so that side does have to be right, but making it right
+# is yours. It is still the only step that costs nothing when it fails.
+Write-Step -Message 'Checking this machine for what the setup needs' -Duration 'a few seconds, plus a WSL2 boot'
+& $PSScriptRoot/00_check_host.ps1
+if ($LASTEXITCODE -ne 0) { throw 'this machine is missing something the setup needs - see above' }
 
 # Setup WSL2 with the ODBC driver, docker and Python
+Write-Step -Message 'Installing the ODBC driver, docker, 7-Zip and Python inside WSL2' -Duration 'several minutes - pyenv compiles Python from source'
 wsl --cd $PSScriptRoot --user root ./02_wsl2_setup.sh
 if ($LASTEXITCODE -ne 0) { throw 'failure in 02_wsl2_setup.sh'}
 
-# Install the Python packages
+# Install the Python packages inside WSL2
+Write-Step -Message 'Installing the Python packages inside WSL2' -Duration 'a minute or two'
 wsl --cd $PSScriptRoot ./03_python_setup.sh
 if ($LASTEXITCODE -ne 0) { throw 'failure in 03_python_setup.sh'}
 
 # Shutdown needed by docker
+Write-Step -Message 'Shutting WSL2 down, which docker needs'
 wsl --shutdown
 
 # Start docker containers
+Write-Step -Message 'Starting the containers and waiting for the demo databases' -Duration 'up to fifteen minutes the first time - Oracle is almost all of it'
 wsl --cd $PSScriptRoot --user root ./04_docker_compose.sh
 if ($LASTEXITCODE -ne 0) { throw 'failure in 04_docker_compose.sh'}
 
 # Create sample data
 # "bash -l" is needed so that pyenv is on the PATH and "python" is the 3.14.6 from 02_wsl2_setup.sh
+Write-Step -Message 'Creating and downloading the sample data' -Duration 'seconds when it is already there, a few minutes on a fresh clone'
 wsl --cd $PSScriptRoot bash -lc 'python ./05_sample_data_setup.py'
 if ($LASTEXITCODE -ne 0) { throw 'failure in 05_sample_data_setup.py'}
 
 # Test connections
+Write-Step -Message 'Testing every connection from inside WSL2'
 wsl --cd $PSScriptRoot bash -lc 'python ./06_test_connections.py'
 if ($LASTEXITCODE -ne 0) { throw 'failure in 06_test_connections.py'}
 
@@ -53,15 +73,21 @@ $keepWsl2Alive = Start-Process -FilePath wsl -ArgumentList 'sleep', '900' -PassT
 # and on a clean install, 1521 has been seen to arrive minutes after the other four, while Oracle
 # itself was running and answering inside WSL2 the whole time. Connecting is cheap and silent, so
 # wait for the forward rather than letting that race decide whether the setup succeeded.
+Write-Step -Message 'Waiting for the Windows port forwarding' -Duration 'instant when the forwards are up, minutes on a cold install'
 $deadline = (Get-Date).AddMinutes(3)
 foreach ($port in 1433, 1521, 5432, 27017, 19092) {
+    # Named one at a time, because this wait used to be completely silent and a port that lags the
+    # others by minutes then looks exactly like a hung script
+    Write-Host -NoNewline "    127.0.0.1:$port ... "
     while (-not (Test-Connection -TargetName 127.0.0.1 -TcpPort $port -Quiet)) {
         if ((Get-Date) -gt $deadline) {
+            Write-Host 'not forwarded'
             Write-Warning "no port forwarding on Windows for 127.0.0.1:$port"
             break
         }
         Start-Sleep -Seconds 5
     }
+    if ((Get-Date) -le $deadline) { Write-Host 'ok' }
 }
 
 # Test connections from Windows
@@ -70,6 +96,7 @@ foreach ($port in 1433, 1521, 5432, 27017, 19092) {
 # A failure here is remembered rather than thrown, so that the stop below still runs. Everything
 # above this line has already been built, and there is no reason to leave the containers to be
 # killed by the WSL2 idle timeout just because a connection test failed.
+Write-Step -Message 'Testing every connection from Windows, which is where the notebooks run'
 python "$PSScriptRoot\06_test_connections.py"
 $windowsTestFailed = $LASTEXITCODE -ne 0
 if ($windowsTestFailed) {
@@ -86,6 +113,7 @@ if ($windowsTestFailed) {
 #
 # And it is a stop, not an exit: without it the containers are not left running, they are killed
 # when WSL2 idles out, and SQL Server and Oracle do crash recovery on the next start.
+Write-Step -Message 'Stopping the containers again - the setup builds, start_demo.ps1 runs' -Duration 'about a minute'
 wsl --cd "$PSScriptRoot\docker" --user root docker compose stop
 if ($LASTEXITCODE -ne 0) {
     Write-Warning 'failure stopping the containers - they are still running and will be in the way of the sibling repository'
@@ -95,3 +123,5 @@ if ($LASTEXITCODE -ne 0) {
 Stop-Process -InputObject $keepWsl2Alive -ErrorAction Ignore
 
 if ($windowsTestFailed) { throw 'failure in 06_test_connections.py on Windows'}
+
+Write-Step -Message 'Finished. Run start_demo.ps1 when you want to demo.'

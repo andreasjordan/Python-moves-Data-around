@@ -2,9 +2,11 @@
 # nothing inside WSL2 ever runs one. That is the only difference between the two sides, and it is
 # why this file exists rather than a second copy of the list.
 #
-# The include below is resolved relative to this file, so it works from any working directory.
+# The include below is resolved relative to this file, so it works from any working directory, and
+# 00_check_host.ps1 follows it rather than reading requirements.txt separately.
 #
-# Installed by 01_setup.ps1.
+# Installed by you, not by the setup - see "What you install, and what the setup installs" in
+# README.md. 00_check_host.ps1 checks this list and names what is missing.
 
 -r requirements.txt
 
