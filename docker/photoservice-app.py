@@ -7,8 +7,8 @@
 #   the shape and the component names that the sibling's Add-LoggingEvent gives them, so the replay
 #   on the other side is still a port of its loop. Every event is printed as well, so that
 #   "docker compose logs -f photoservice" shows the shop running whether or not anybody is
-#   consuming. The PowerShell version still writes its events to files; changing that is entry 10
-#   of SIBLING-FINDINGS.md.
+#   consuming. The PowerShell version produces to the same topic since 2026-08-15, which closed
+#   entry 10 of SIBLING-FINDINGS.md - so this is no longer a difference between the two.
 # * The sibling sets $PSDefaultParameterValues to turn EnableException on for every -Pg and -Mdb
 #   call at once. Python has no such thing, so every call passes enable_exception=True itself.
 
@@ -33,6 +33,7 @@ from connect_kfk_producer import connect_kfk_producer  # noqa: E402
 from connect_mdb_instance import connect_mdb_instance  # noqa: E402
 from connect_pg_instance import connect_pg_instance  # noqa: E402
 from invoke_pg_query import invoke_pg_query  # noqa: E402
+from remove_kfk_topic import remove_kfk_topic  # noqa: E402
 from write_kfk_topic import write_kfk_topic  # noqa: E402
 from write_mdb_collection import write_mdb_collection  # noqa: E402
 from write_pg_table import write_pg_table  # noqa: E402
@@ -140,6 +141,22 @@ for table in ["order_event", "order_detail", "order_header", "customer"]:
 # lib/README.md - and pymongo drops a collection in one line, so this is that line.
 mdb_connection.drop_collection("Orders")
 
+# The topic goes with the tables. It used to be kept - a topic keeps its history on purpose, the
+# argument went - but not across restarts of the thing that writes it: the ids start again at 1
+# here, so a topic that survives holds several customers with id 1 and demo 6's replay dies on a
+# primary key violation. Emptying it makes the reset complete rather than half done.
+#
+# The history demo 6 teaches is across *readers*, not across application starts, and that is
+# untouched: a new group id still replays the whole topic, and the offsets are per group.
+#
+# Unlike drop_collection above this is not a one-liner - it needs an admin client, a delete and a
+# wait for the broker to catch up - so it is a lib/ function, and the sibling has the same one.
+remove_kfk_topic(
+    instance=db_config["kfk_instance"],
+    topic=TOPIC,
+    enable_exception=True
+)
+
 print("Reading photo data")
 photos = invoke_pg_query(
     connection=pg_connection,
@@ -147,6 +164,23 @@ photos = invoke_pg_query(
     as_type="dict",
     enable_exception=True
 )
+
+# The counterpart of the sibling's Get-LocalTimestamp, and every timestamp that is stored goes
+# through it. It needs none of that function's SpecifyKind - psycopg writes a naive datetime into
+# a TIMESTAMP column unchanged, where Npgsql turns a Local one into UTC - but it does need the
+# same truncation.
+#
+# datetime.now() carries microseconds, TIMESTAMP(3) keeps three digits and rounds. So the topic
+# said 12:05:20.955381 while PostgreSQL held 12:05:20.955, and a replay through demo 6 landed a
+# different value in SQL Server than the direct transfer in demo 4 did - sub-millisecond, on
+# every row. Handing over what the column can actually store removes the question.
+#
+# Local time is a deliberate choice for a demo - the clock on the wall is the clock on the slide.
+# The Timestamp of the logging event stays UTC, and the sibling's does too.
+def get_local_timestamp():
+    now = datetime.now()
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
+
 
 # The schedule, ten times faster than it used to be
 #
@@ -224,7 +258,7 @@ while True:
         order_header = {
             "id": new_order["next_id"],
             "customer_id": random.randint(1, max(new_customer["next_id"] - 1, 1)),
-            "created_at": datetime.now(),
+            "created_at": get_local_timestamp(),
             "updated_at": None,
             "payment_uuid": None,
             "shipment_uuid": None
@@ -336,7 +370,7 @@ while True:
             payment = {
                 "order_id": order_id,
                 "payment_uuid": uuid.uuid4(),
-                "updated_at": datetime.now()
+                "updated_at": get_local_timestamp()
             }
             invoke_pg_query(
                 connection=pg_connection,
@@ -369,7 +403,7 @@ while True:
             shipment = {
                 "order_id": order_id,
                 "shipment_uuid": uuid.uuid4(),
-                "updated_at": datetime.now()
+                "updated_at": get_local_timestamp()
             }
             invoke_pg_query(
                 connection=pg_connection,

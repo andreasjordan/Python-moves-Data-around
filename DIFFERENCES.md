@@ -874,6 +874,70 @@ starting again means a new `group_id`. `lib/README.md` and the notebook both say
 what everybody gets wrong first, and in a stepped-through notebook — where cells are re-run constantly —
 it shows up as "the cell returned nothing the second time" rather than as an error.
 
+### The topic is emptied at application start, and it used to be kept
+
+**Both sides, decided 2026-08-16, and it reverses a decision both had written down.**
+`docker/photoservice-app.py` and the sibling's `photoservice-app.ps1` both truncated their tables at
+startup and both deliberately left the topic alone, with a comment saying that a topic keeps its
+history on purpose and that demo 6 reads across restarts.
+
+**Evidence that this does not work.** The application restarts its ids at 1 every time it starts. A
+topic that outlives the tables therefore holds one `Added customer` with `id = 1` per application
+start. Measured on the sibling on 2026-08-16, after three starts against one topic: 2060 messages,
+76 `Added customer` events, **16 customer ids appearing more than once**, and the replay dying on
+
+```
+Violation of PRIMARY KEY constraint 'customer_pk'.
+Cannot insert duplicate key in object 'dbo.customer'. The duplicate key value is (1).
+```
+
+The incremental section was unreachable for the same reason: 2060 messages of backlog against a
+measured production rate of **3.50 events/sec** means 60 messages per press only gains ground if the
+press comes more often than every 17 seconds, which is not how a demo is read aloud.
+
+**The distinction the old comment ran together.** *History across readers* — a new group id replays
+everything, offsets are per group, reading is not taking — is what demo 6 actually teaches, and
+emptying the topic at application start does not touch it. *History across application starts* is
+what broke the replay, and nothing in either demo uses it.
+
+**Decision:** `remove_kfk_topic` / `Remove-KfkTopic`, called next to the collection drop, so the reset
+is complete rather than half done. Verified afterwards on both sides: the topic starts at offset 0
+with exactly one customer id 1, and the whole-topic replay of the sibling's demo 6 lands 30 customers,
+107 order headers and 1539 detail lines with **0 differences on every column** against PostgreSQL.
+
+### Timestamps are truncated to milliseconds before they are stored
+
+**Both sides, decided 2026-08-16.** `datetime.now()` carries microseconds and .NET's `[datetime]::Now`
+carries hundreds of nanoseconds. Every column that receives one is `TIMESTAMP(3)`, which keeps three
+digits and rounds.
+
+**Evidence.** The value that went on the topic and the value that went into PostgreSQL were the same
+object, but the column truncated it and the JSON did not:
+
+```
+created_at   topic=[2026-08-16T09:46:49.0523691]   PostgreSQL=[2026-08-16 09:46:49.052]
+```
+
+So a replay through demo 6 landed a different value in SQL Server than the direct transfer in demo 4
+did — measured on the sibling over 241 order headers: **241 of 241** `created_at` and **215 of 241**
+`updated_at` differed, every one of them by less than a millisecond. The four non-timestamp columns
+agreed exactly.
+
+This is the residue of the entry below on `created_at`, which fixed the time zone half and reported
+that "the topic and the column agree to the millisecond". That was literally true and hid this.
+
+**Decision:** hand over what the column can actually store. `get_local_timestamp()` here and
+`Get-LocalTimestamp` in the sibling both truncate. Re-measured afterwards, with no tolerance: 0
+differences on all six columns of `order_header`, with 81 payment and 55 shipment uuids and 81
+non-NULL `updated_at` values actually compared.
+
+**One thing deliberately not aligned:** the two topics still *render* the timestamp differently.
+`write_kfk_topic` serialises with `default=str`, so Python writes `2026-08-16 12:12:43.199000` — a
+space and six digits — while the .NET `ConvertTo-Json` writes `2026-08-16T12:05:20.955`. The values
+denote the same millisecond and no consumer reads both topics, so this is rendering rather than
+content. Verified by value rather than by string: 0 of 186 `created_at` and 0 of 156 `updated_at`
+carried a non-zero microsecond remainder.
+
 ## MongoDB
 
 ### A connection that is not a connection

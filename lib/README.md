@@ -17,13 +17,14 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 35 functions. This one has twenty-two — eighteen ported, plus four for Kafka, which the
-sibling does not have at all. The rest of this file is as much a to-do list as an index.
+`lib/` has 41 functions. This one has twenty-three — eighteen ported, plus five for Kafka. The rest of
+this file is as much a to-do list as an index.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
-**pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka. The sibling has no **kfk**, which is the one
-place this repository goes further rather than narrower.
+**pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka. The **kfk** column used to be the one place
+this repository went further than the sibling; the sibling caught up on 2026-08-15 and now has the
+same five, so the two can be shown side by side for event streaming as well.
 
 Every function takes `enable_exception=False`. With it, a failure raises; without it, the function
 prints `[ERROR] …` and returns `None`. Callers turn it on per call — there is no equivalent of
@@ -361,6 +362,27 @@ read: `first=n`, or ask the broker where the end is with
 Offsets are committed automatically as it reads, which is why calling it twice returns different
 messages rather than the same ones.
 
+### `remove_kfk_topic(instance, topic, enable_exception=False)`
+
+Deletes the topic and waits until the broker has really dropped it.
+
+**It takes `instance` rather than `connection`, and it is the only function here that does.**
+Deleting a topic is neither producing nor consuming, so neither of the two clients
+`connect_kfk_*` returns is the right thing to hand over; it builds its own `AdminClient`, which is
+where confluent-kafka keeps operations of this kind. The sibling's `Remove-KfkTopic` takes
+`-Instance` for the same reason.
+
+`docker/photoservice-app.py` calls it next to its `drop_collection("Orders")` when it clears the
+previous run. The application restarts its ids at 1 every time it starts, so a topic that outlived
+the tables would hold several customers with id 1, and `demo/06_eventstreaming.ipynb` would replay
+all of them into one primary key. Measured before this existed: three application starts left the
+topic with sixteen duplicate customer ids and the replay died on `customer_pk`.
+
+**It waits rather than returning on the broker's acknowledgement.** Deletion is asynchronous, and
+the caller's next message would simply recreate the topic — with auto-creation on, which is how
+this lab runs, that race is silent. For the same reason it asks for the whole topic list rather
+than `list_topics(topic=...)`, which would create the very topic it is checking for.
+
 ## Gaps in the grid
 
 The names are fixed by the naming grid, so the empty cells are worth writing down before anyone invents
@@ -377,6 +399,7 @@ and **—** is a cell that makes no sense for that provider:
 | File → table | ✔ `import_sql_table` | ✔ `import_ora_table` | ✔ `import_pg_table` | — | — |
 | Table → file | `export_sql_table` | `export_ora_table` | `export_pg_table` | — | — |
 | Column metadata | `get_sql_table_information` | `get_ora_table_information` | `get_pg_table_information` | — | — |
+| Drop | — | — | — | — | ✔ `remove_kfk_topic` |
 
 The grid is intentionally not square, for the same reasons as in the sibling repository: MongoDB has no
 column metadata to return and already streams.
@@ -396,11 +419,16 @@ directory, per platform. For
 Oracle that saved more than the download: `oracledb` in thin mode needs no Oracle Instant Client at
 all.
 
-One sibling function has no cell in this grid at all: `Remove-MdbCollection`. Dropping a collection is
-what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it yet — that
-omission is a decision nobody has made, rather than one that has been made.
-`docker/photoservice-app.py` is the one caller that wants it on its own, at startup, with no documents
-to write; it calls `connection.drop_collection("Orders")` directly, because that is the whole function.
+The **MongoDB cell of the Drop row is empty**, where the sibling has `Remove-MdbCollection`. Dropping a
+collection is what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it
+on its own — that omission is a decision nobody has made, rather than one that has been made.
+`docker/photoservice-app.py` is the one caller that wants it at startup, with no documents to write;
+it calls `connection.drop_collection("Orders")` directly, because that is the whole function.
+
+**`remove_kfk_topic` is on the same line of that row and did become a function**, which is the useful
+contrast: emptying a topic is an admin client, a delete and a wait for the broker, not a one-liner. The
+two sit next to each other in `photoservice-app.py`, one inline and one from `lib/`, and the difference
+between them is length rather than principle.
 
 When you add a function for one provider, check whether the same function belongs in its siblings, and
 either add it there too or record the reason here.
