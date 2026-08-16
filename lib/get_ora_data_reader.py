@@ -1,4 +1,7 @@
 import logging
+
+import oracledb
+
 from invoke_ora_query import _prepare_query_and_params
 
 logger = logging.getLogger("lib." + __name__)
@@ -39,6 +42,22 @@ def get_ora_data_reader(
         query, params = _prepare_query_and_params(query, parameter_values)
 
         cursor = connection.cursor()
+
+        # A long string parameter has to be declared as a CLOB, the same guard invoke_ora_query and
+        # read_ora_query carry - Get-OraDataReader has it too, and this file was the one place in the
+        # family without it. The limit is 4000 characters because that is where a VARCHAR2 bind stops;
+        # what it prevents here is ORA-01460 "unimplemented or unreasonable conversion requested",
+        # measured from about 250000 characters, while invoke_ora_query took the same value at 1.27 MB.
+        # The error the sibling names is ORA-01461, which is what the .NET provider raises instead.
+        if isinstance(params, dict):
+            long_parameters = {
+                name: oracledb.DB_TYPE_CLOB
+                for name, value in params.items()
+                if isinstance(value, str) and len(value) > 4000
+            }
+            if long_parameters:
+                cursor.setinputsizes(**long_parameters)
+
         if params is not None:
             cursor.execute(query, params)
         else:

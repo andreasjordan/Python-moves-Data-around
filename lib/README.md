@@ -236,6 +236,11 @@ cursor is both at once, so it is simply returned.
 The writer that receives it reads it with `fetchmany(batch_size)` and **closes it when it is done** —
 the same ownership as in the sibling, where `Write-SqlTable` disposes the reader it was handed.
 
+`get_ora_data_reader` carries the >4000-character CLOB guard, the same one `invoke_ora_query` and
+`read_ora_query` have and the same one `Get-OraDataReader` has. Without it a long parameter fails with
+`ORA-01460` — measured from about 250000 characters, not from 4001, which is why the entry in
+`DIFFERENCES.md` warns against narrowing the limit to what a quick probe suggests.
+
 `parameter_values` works exactly as it does in `invoke_*_query`, and it is **the same function doing the
 work**: each reader imports `_prepare_query_and_params` from its own `invoke_*_query` module rather than
 carrying a fourth, fifth and sixth copy of that regex. That is the one place in `lib/` where a `_` helper
@@ -278,7 +283,7 @@ Three things follow from being a generator, and all three are visible at the cal
 There is no `as_type`, because the sibling's `Read-*Query` has no `-As` either: it emits objects and
 nothing else. `parameter_values` works exactly as it does in `invoke_*_query` and is the same
 `_prepare_query_and_params` doing the work. `read_ora_query` carries the >4000-character CLOB guard as
-well, for the reason `invoke_ora_query` gives.
+well, for the reason `invoke_ora_query` gives — all three Oracle functions that bind a parameter have it.
 
 The psycopg caveat above applies to `read_pg_query` too: it streams from the caller's point of view but
 not from the server's.

@@ -637,7 +637,10 @@ characters to 1573724, and 190 of the 258 features are over 4000.
 | with the guard | **258 of 258 rows**, including Canada at 1.5 MB |
 
 **Decision:** the same guard, the same limit — declare any string parameter longer than 4000
-characters as `oracledb.DB_TYPE_CLOB` via `setinputsizes`.
+characters as `oracledb.DB_TYPE_CLOB` via `setinputsizes`. It is in **all three Oracle functions that
+bind parameters**: `invoke_ora_query`, `read_ora_query` and `get_ora_data_reader`, matching
+`Invoke-OraQuery`, `Read-OraQuery` and `Get-OraDataReader`. Three inline copies rather than a shared
+helper, which is what the sibling does too.
 
 **The part worth pausing on:** this is the exact opposite of the Oracle bulk-load decision above. There,
 declaring a CLOB column costs 30× and is avoided; here, declaring it is the only way the value arrives
@@ -646,6 +649,29 @@ undeclared, while a single `execute` binding into a *function argument* does not
 sends it as a LONG and Oracle only accepts a LONG bind for a LONG column.
 
 **Why it matters:** the failure is loud, but it is also partial — 187 rows landed and looked fine.
+
+**A correction to the threshold, measured when `get_ora_data_reader` was the last function still missing
+the guard.** The 4000 limit comes from the sibling and is the right place to put it, but **oracledb in
+thin mode does not fail at 4001** and it does not raise `ORA-01461` either. Unguarded, with the value
+bound into `SDO_UTIL.FROM_GEOJSON(:geometry)` and into a plain `LENGTH(:big)`:
+
+| Parameter length | Unguarded | Guarded |
+| --- | --- | --- |
+| 4001 | OK | OK |
+| 25000 | OK | OK |
+| 255306 | **`ORA-01460: unimplemented or unreasonable conversion requested`** | OK |
+| 1276416 | **`ORA-01460`** | OK |
+
+So the error is `ORA-01460` rather than the `ORA-01461` the .NET provider raises, and it starts somewhere
+between 25000 and 255306 characters rather than at 4000. **Do not narrow the guard to that measured
+range** — where exactly thin mode gives up is not established, the 4000 boundary is the documented one
+for a `VARCHAR2` bind, and 190 of the 258 GeoJSON features are over it. The point of writing this down is
+that a check built around `ORA-01461` at 4001 characters would find nothing and read as green.
+
+**Caution when reproducing this:** the obvious probe, `SDO_UTIL.TO_WKTGEOMETRY(...)`, is
+**non-deterministic** — see *Except on Oracle, where the round trip is not symmetrical*. The same 25556
+character value passed on one run and answered `ORA-13199` on the next, which looks exactly like a bind
+failure and is not one. Use a non-spatial expression such as `LENGTH(:big)` to measure the bind.
 
 ### json.dumps needs separators, or Indonesia does not fit
 
