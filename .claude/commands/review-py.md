@@ -17,11 +17,11 @@ These are deliberate. Reporting them is noise:
 - "Use SQLAlchemy", "use `pandas.read_sql`", "use `DataFrame.to_sql`" — hand-written DB-API code is
   the demo
 - `except Exception` and `raise Exception(...)` — that is the `enable_exception` contract
-- Committed notebook outputs, and cells whose last line is a bare variable name
+- Cleared notebook outputs, and cells whose last line is a bare variable name
 - Imports repeated in a later notebook cell, code commented out on purpose (`os.startfile`,
   `DROP TABLE`), and variables that are only inspected interactively
-- `docker/photoservice-app.ps1` still being the sibling's, and the `photoservice` service being
-  commented out in `docker-compose.yaml` — these are listed as known state in `AGENTS.md`
+- Anything listed as known state in the `Current state` table of `AGENTS.md`, or as a decision in
+  `DIFFERENCES.md` — those are decisions, not discoveries
 
 ## Do report, in this order
 
@@ -42,8 +42,8 @@ These are deliberate. Reporting them is noise:
 6. **Encoding and platform traps** — non-ASCII printed from code that may run in a `cp1252` console,
    `r"..\path"` backslash paths in code that is also meant to run under WSL2, `os.startfile` outside a
    comment.
-7. **Notebook damage** — cleared or mismatched outputs, a cell that can no longer run standalone in
-   order, `sys.path` set up after the import that needs it.
+7. **Notebook damage** — outputs left in a committed notebook, a cell that can no longer run standalone
+   in order, `sys.path` set up after the import that needs it.
 8. **Drift between the docs and the code** — `README.md`, `AGENTS.md`, `lib/README.md` and
    `data/*/README.md` versus what the code actually does.
 9. **Ruff findings** under `./ruff.toml`. Run `python -m ruff check .` and cite the rule code. If ruff

@@ -2,7 +2,7 @@
 
 This repository provides infrastructure as code, sample data and demo code to show how Python can move data around. It is intended to show the strengths and possibilities of Python as an ETL tool.
 
-This is the siblings project for [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around). I will try to build the same functionality - only using Python instead of PowerShell.
+This is the siblings project for [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around). It does the same things - only using Python instead of PowerShell.
 
 I will present this at the [IT-Tage 2026 in Frankfurt](https://www.ittage.informatik-aktuell.de/programm) in my session [Einfach statt komplex: Datenbankintegration mit PowerShell und Python](https://www.ittage.informatik-aktuell.de/programm/2026/einfach-statt-komplex-datenbankintegration-mit-powershell-und-python.html).
 
@@ -48,31 +48,7 @@ I use VS Code to work with Jupyter Notebooks.
 
 
 
-## Current state
-
-This repository is a work in progress. The [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around)
-repository is being ported scenario by scenario:
-
-| Part | State |
-| --- | --- |
-| Timesheets demo | Done, see `demo/01_timesheets.ipynb` |
-| StackExchange demo | Done, see `demo/02_stackexchange.ipynb` |
-| Geodata demo | Done, see `demo/03_geodata.ipynb` |
-| PhotoService demo | Done, see `demo/04_photoservice.ipynb` |
-| ProjectStatus demo | Done, see `demo/05_projectstatus.ipynb` |
-| Event streaming demo | Done, see `demo/06_eventstreaming.ipynb` |
-| `lib/` | Twenty-three functions, for SQL Server, Oracle, PostgreSQL, MongoDB and Kafka |
-| Containers | Complete — every scenario's databases are created, the PhotoService application runs as a container of its own, and Redpanda serves the Kafka demo. |
-| Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
-
-Every scenario of the sibling repository is now ported, apart from the bonus sections listed under the
-demos below.
-
-
-
 ## Supported data sources and targets
-
-Working today:
 
 - Microsoft SQL Server
 - Oracle database
@@ -81,7 +57,6 @@ Working today:
 - Apache Kafka, served by Redpanda
 - Microsoft Excel
 - XML files
-
 - GPX files, GeoJSON files
 - JPEG files, as binary data in the database itself
 
@@ -91,8 +66,10 @@ Working today:
 
 | Path | Content |
 | --- | --- |
-| `01_setup.ps1` … `06_test_connections.py` | The setup steps. `01_setup.ps1` runs all of them. |
+| `00_check_host.ps1` | Checks that this machine has what the setup will not install, and names anything missing. Changes nothing, so it is safe to run at any time. |
+| `01_setup.ps1` … `06_test_connections.py` | The setup steps. `01_setup.ps1` runs all of them. It builds the environment; it does not start a demo. |
 | `07_check_ports.ps1` | Not a setup step. Checks whether Windows can reach the container ports, for when something cannot connect. |
+| `requirements.txt`, `requirements-windows.txt` | The list of Python packages, and the Windows-only addition to it. |
 | `start_demo.ps1` | Starts the containers and keeps them running. This is what you run before a demo. |
 | `data/` | One directory per scenario for the sample data. The generated and downloaded files are not part of the repository. |
 | `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
@@ -195,9 +172,8 @@ This is the scenario where the data is *wrong*, which none of the first four are
 - Then the part a database comparison cannot do: a reader with a new `group_id` gets the whole history and rebuilds the target from nothing
 - Redpanda Console is at `http://127.0.0.1:8080`, there for the same reason pgAdmin is
 
-**This is the only part of this repository that is not a port.** The sibling repository has no Kafka,
-so for this one demo there is nothing to show side by side — everything else here has a PowerShell
-counterpart.
+The same two-minute wait as PhotoService applies, and more strictly: this demo reads the events rather
+than the tables, so before the first order there is nothing on the topic but `Added customer`.
 
 ## Infrastructure
 
@@ -229,22 +205,17 @@ have it as a literal, so changing `docker/.env` alone is not enough to change it
 
 Both repositories are meant to live in the same WSL2 installation. Neither one names a distribution, so
 both use the default — install Ubuntu once, then run `01_setup.ps1` in each repository. The second run
-finds the ODBC driver, docker and 7-Zip already there and only does its own half. Expect Oracle's first
-start twice, though, once per repository: the volumes belong to the stack, not to the machine.
+finds the ODBC driver, docker and 7-Zip already there and only does its own half. The volumes belong to
+the stack rather than to the machine, so each repository builds its own.
 
 `01_setup.ps1` **sets the machine up, it does not start a demo.** It stops the containers again at the
 end, which is what makes running it in both repositories possible: the other setup would otherwise find
 these containers holding every port it wants.
 
-**Switching in either direction is handled for you.** Both repositories now end their setup with
-`docker compose stop`, and both stop the other one's containers before starting their own — found by the
-`com.docker.compose.project` label, so neither needs a file from the other. Nothing has to be stopped by
-hand any more.
-
 To demo, run `start_demo.ps1`. Both repositories publish the same ports, so only one stack can run at a
-time, and `start_demo.ps1` stops the other one for you before starting its own. That is a stop and not
-a `down`, so the volumes on both sides survive — switching back and forth costs a minute, not another
-Oracle start.
+time, and `start_demo.ps1` stops the other one for you before starting its own — found by the
+`com.docker.compose.project` label, so neither repository needs a file from the other. That is a stop
+and not a `down`, so the volumes on both sides survive; switching back and forth costs a minute.
 
 Why it stops the other stack rather than letting the ports collide: both repositories use the same
 ports, the same password *and* the same database names. A port conflict would at least be loud. Instead
@@ -259,8 +230,7 @@ wsl --user root docker compose ls
 
 **One small thing about switching.** It restarts the PhotoService container, which truncates its tables
 and restarts its schedule — so demos 4 and 6 are empty for the first two minutes after every switch, on
-whichever side you switch to. That used to be twenty minutes and used to decide the running order of a
-whole session; now it is roughly as long as the containers take to come up anyway.
+whichever side you switch to.
 
 
 ### Install WSL2
@@ -311,7 +281,7 @@ for most of them, and finishes on the Windows side:
 | `03_python_setup.sh` | you, in WSL2 | `pip install -r requirements.txt` |
 | `04_docker_compose.sh` | root, in WSL2 | Waits for the docker daemon, starts the containers, and waits until SQL Server, PostgreSQL, MongoDB and Oracle have created the demo databases |
 | `05_sample_data_setup.py` | you, in WSL2 | Creates the Excel files from `sample.json` and downloads the StackExchange and Geodata samples. A download is skipped when its files are already there; `--force` fetches them again |
-| `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a ported demo uses |
+| `06_test_connections.py` | you, in WSL2 | Opens a connection to every database a demo uses |
 | `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
 | `docker compose stop` | root, in WSL2 | Stops the containers again. The setup is finished; `start_demo.ps1` is what starts a demo |
 
@@ -341,10 +311,8 @@ minute if you want to look into it.
 Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
 installed for your user account and not for root, which is why the later steps do not use `--user root`.
 
-The whole run takes about half an hour, nearly all of it Oracle starting for the first time. That is
-the price of the volumes, and it is paid once per repository — see
-[Sharing one WSL2 installation with the sibling repository](#sharing-one-wsl2-installation-with-the-sibling-repository)
-if you are installing both.
+The whole run takes about half an hour. If you are installing both repositories, see
+[Sharing one WSL2 installation with the sibling repository](#sharing-one-wsl2-installation-with-the-sibling-repository).
 
 
 ### Start the demo
@@ -377,11 +345,11 @@ because that is what starts the daemon.
 wsl --cd "$PWD\docker" --user root docker compose restart photoservice
 ```
 
-The application truncates its own PostgreSQL tables and drops its MongoDB collection when it starts, so
-this puts it back to nothing. It also restarts the clock: the first order is scheduled 60 seconds
-later, the first payment at 90, the first shipment at 120. **Give it those two minutes before
-expecting demos 4 and 6 to be interesting** — inside that window the tables and the Kafka topic are
-nearly empty, which looks broken and is not.
+The application truncates its own PostgreSQL tables, drops its MongoDB collection and empties the Kafka
+topic when it starts, so this puts it back to nothing. It also restarts the clock: the first order is
+scheduled 60 seconds later, the first payment at 90, the first shipment at 120. **Give it those two
+minutes before expecting demos 4 and 6 to be interesting** — inside that window the tables and the
+topic are nearly empty, which looks broken and is not.
 
 Note what this does *not* touch: the SQL Server tables those demos transfer data *into*. Those are the
 demo's own output, and the notebooks clean up after themselves.
@@ -395,13 +363,11 @@ wsl --cd "$PWD\docker" --user root docker compose down -v
 
 `-v` is the whole point — it removes the named volumes, and that is what actually deletes the data.
 Without it you get the restart described above. With it, every container starts empty and re-runs its
-init scripts, so all five scenarios' databases are created again exactly as the setup made them.
+init scripts, so all five scenario databases are created again exactly as the setup made them.
 
-**It costs about two minutes**, measured on 2026-08-16, and it does not re-download the images. This
-used to say "budget about fifteen minutes", on the assumption that the volumes had to be rebuilt by a
-long Oracle start. The Oracle image ships a prebuilt database rather than creating one, so there is no
-such rebuild. Use it whenever you want a genuinely clean lab — the only thing it costs you is whatever
-you had not saved.
+**It costs about two minutes**, because the Oracle image ships a prebuilt database rather than creating
+one on first start, and it does not re-download the images. Use it whenever you want a genuinely clean
+lab — the only thing it costs you is whatever you had not saved.
 
 It is also the only way to pick up a change to the init SQL under `docker/`, because those scripts run
 only when a volume is created.

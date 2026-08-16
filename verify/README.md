@@ -11,15 +11,13 @@ the other.
 ## Why this folder exists
 
 `AGENTS.md` says *"Reproduce these rather than inventing a new check"* and then gives the numbers as
-prose. Three things follow from that, and all three actually happened:
+prose. Three things follow from that, and all three have happened:
 
 - **The checks get rewritten every session, differently.** Whether a run is comparable to the last one
   becomes a matter of reading two transcripts.
-- **The checks have bugs, and a throwaway check takes its bugs with it.** Building this folder found
-  three in one afternoon, all of which read as defects in the repository for a few minutes.
-- **A recorded number can stop being true without anyone noticing.** On 2026-08-16 the sibling's entry
-  10 claim of *"0 differences on every column"* turned out not to reproduce. Prose cannot fail; a
-  script can.
+- **The checks have bugs, and a throwaway check takes its bugs with it.** The bugs found while building
+  this folder each read as a defect in the repository for a few minutes.
+- **A recorded number can stop being true without anyone noticing.** Prose cannot fail; a script can.
 
 ## Running it
 
@@ -65,21 +63,20 @@ the original is narration in a cell rather than a function, and the comment says
 **Assert the preconditions, or the comparison measures nothing.** Every value comparison here is
 preceded by a check that there was something to compare: that 12179 of 12220 `LastAccessDate` values
 really do carry milliseconds, that no photo is `None` before the MD5s are taken, that payment uuids
-were actually compared so the fold was doing work. Three checks passed for the wrong reason in a
-single session on 2026-08-15. **Before adding a `fact()`, ask what it would print if the thing under
-test were absent.**
+were actually compared so the fold was doing work. **Before adding a `fact()`, ask what it would print
+if the thing under test were absent.**
 
 **Fold the column names.** PostgreSQL folds unquoted names to lower case and Oracle to upper, so one
 query text comes back with three key spellings. PowerShell hides this because its property access is
-case-insensitive — that is finding 6 of the sibling's `SIBLING-FINDINGS.md` — and a Python dict does
-not. `02_stackexchange.py` has a `lower_keys` helper for exactly this.
+case-insensitive, and a Python dict does not. `02_stackexchange.py` has a `lower_keys` helper for
+exactly this.
 
 **Do not assert a number nobody measured.** Two cases in particular:
 
 - **Oracle's `SDO_UTIL.TO_WKTGEOMETRY` is non-deterministic on purpose.** It fails for a varying
-  subset of the same 258 rows — seen at 26, 31, 39, 40, 42 and 64, and two consecutive runs on
-  2026-08-16 gave 26 and 64. `DIFFERENCES.md` lists four rejected explanations. `03_geodata.py`
-  prints the count and asserts only that the failure is not total.
+  subset of the same 258 rows — seen at 26, 31, 39, 40, 42 and 64, and two consecutive runs have given
+  26 and 64. `DIFFERENCES.md` lists four rejected explanations. `03_geodata.py` prints the count and
+  asserts only that the failure is not total.
 - **The PhotoService transfer timings depend on how long the shop has been running.** `04` asserts the
   shape and prints the milliseconds.
 

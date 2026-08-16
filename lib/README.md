@@ -17,14 +17,11 @@ from write_sql_table import write_sql_table
 
 This is the counterpart to dot-sourcing in the sibling repository
 [PowerShell moves Data around](https://github.com/andreasjordan/PowerShell-moves-Data-around), whose
-`lib/` has 41 functions. This one has twenty-three — eighteen ported, plus five for Kafka. The rest of
-this file is as much a to-do list as an index.
+`lib/` has 41 functions. This one has twenty-three.
 
 Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the same name, so
 `Connect-SqlInstance` ↔ `connect_sql_instance`. Prefixes: **sql** = SQL Server · **ora** = Oracle ·
-**pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka. The **kfk** column used to be the one place
-this repository went further than the sibling; the sibling caught up on 2026-08-15 and now has the
-same five, so the two can be shown side by side for event streaming as well.
+**pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka.
 
 Every function takes `enable_exception=False`. With it, a failure raises; without it, the function
 prints `[ERROR] …` and returns `None`. Callers turn it on per call — there is no equivalent of
@@ -52,8 +49,8 @@ Runs a query and returns the whole result in memory.
   order of appearance first. pyodbc has no named parameters of its own; that rewrite is a small regex
   in `_prepare_query_and_params`. It does not know about string literals, so a `:` inside a quoted
   string in the query will be mangled. It **does** know about a doubled colon, so
-  `geometry::STGeomFromText(@wkt, 4326)` and `value::numeric` survive — that cost the Geodata scenario
-  its first statement before it was fixed.
+  `geometry::STGeomFromText(@wkt, 4326)` and `value::numeric` survive, which the Geodata scenario needs
+  in its very first statement.
 - **A failed statement rolls back.** PostgreSQL aborts the whole transaction when anything in it
   fails, so `invoke_pg_query` has to; the other two do it to stay siblings. Without it, one bad query
   makes every later query on the same connection fail with a message that does not mention the
@@ -235,11 +232,9 @@ the same ownership as in the sibling, where `Write-SqlTable` disposes the reader
 `parameter_values` works exactly as it does in `invoke_*_query`, and it is **the same function doing the
 work**: each reader imports `_prepare_query_and_params` from its own `invoke_*_query` module rather than
 carrying a fourth, fifth and sixth copy of that regex. That is the one place in `lib/` where a `_` helper
-is used outside the file it lives in, and it is deliberate — see `DIFFERENCES.md`.
-
-It was left out until the PhotoService scenario, on the grounds that no demo passed parameters to a
-reader. That scenario passes them in six cells: "transfer everything after the id the target already
-has" is the whole technique, and the id is a parameter.
+is used outside the file it lives in, and it is deliberate — see `DIFFERENCES.md`. The PhotoService
+scenario is what needs it: "transfer everything after the id the target already has" is the whole
+incremental technique, and the id is a parameter.
 
 Two parameters of the sibling are still missing: `-ParameterTypes`, which `invoke_*_query` does not have
 either, and `-QueryTimeout`, for the same reason it is missing from `invoke_sql_query`.
@@ -375,8 +370,7 @@ where confluent-kafka keeps operations of this kind. The sibling's `Remove-KfkTo
 `docker/photoservice-app.py` calls it next to its `drop_collection("Orders")` when it clears the
 previous run. The application restarts its ids at 1 every time it starts, so a topic that outlived
 the tables would hold several customers with id 1, and `demo/06_eventstreaming.ipynb` would replay
-all of them into one primary key. Measured before this existed: three application starts left the
-topic with sixteen duplicate customer ids and the replay died on `customer_pk`.
+all of them into one primary key.
 
 **It waits rather than returning on the broker's acknowledgement.** Deletion is asynchronous, and
 the caller's next message would simply recreate the topic — with auto-creation on, which is how
@@ -406,18 +400,16 @@ column metadata to return and already streams.
 
 **Kafka is the first column with two functions in one cell.** Every other provider has one connection
 that both reads and writes; Kafka has a producer and a consumer, which are separate clients. The
-sibling makes the same split for the same reason. This column began as the only one with no
-counterpart over there; since 2026-08-15 it has one, and `DIFFERENCES.md` records what the .NET client
-forced that `confluent-kafka` did not.
+sibling makes the same split for the same reason, and `DIFFERENCES.md` records what the .NET client
+forced there that `confluent-kafka` did not force here.
 
 Three things the sibling needs and this repository does not: `Import-OraLibrary`, `Import-PgLibrary`
 and `Import-KfkLibrary`, which download the drivers from nuget.org. In Python the drivers are
 `pip install`ed by `03_python_setup.sh` (`oracledb`, `psycopg`, `pymongo`, `confluent-kafka`), so those
 cells of the grid disappear — and the Kafka one is the widest gap of the three, because the wheel here
 carries the native librdkafka while over there it is a second package that has to be put in the right
-directory, per platform. For
-Oracle that saved more than the download: `oracledb` in thin mode needs no Oracle Instant Client at
-all.
+directory, per platform. For Oracle it saved more than the download: `oracledb` in thin mode needs no
+Oracle Instant Client at all.
 
 The **MongoDB cell of the Drop row is empty**, where the sibling has `Remove-MdbCollection`. Dropping a
 collection is what `truncate_collection` does inside `write_mdb_collection`, so nothing has needed it
