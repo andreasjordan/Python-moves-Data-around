@@ -151,6 +151,48 @@ line("      stopping the shop so that the topic and PostgreSQL stop moving apart
 compose("stop", "photoservice")
 
 try:
+    ###########################################################################
+    # The outbox, which is scenario 6's first section
+    ###########################################################################
+
+    # order_event and the order_header column it describes are written in one transaction, so they
+    # agree in both directions. Two separately committed statements would agree too, most of the
+    # time - the difference only shows on the row where the process died between them, which is why
+    # this runs with the shop stopped rather than mid-flight.
+    orphans = invoke_pg_query(connection=pg_connection, as_type="single_value", enable_exception=True,
+                              query="SELECT COUNT(*) FROM order_event WHERE order_id IS NULL")
+    fact("no order_event row has a NULL order_id", orphans == 0, f"{orphans} orphan(s)")
+
+    for kind in ["payment", "shipment"]:
+        column = f"{kind}_uuid"
+
+        # Preconditions first. Both directions below are satisfied by an empty table, so without
+        # this the two facts that follow would be green on a shop that had written nothing.
+        events = invoke_pg_query(
+            connection=pg_connection, as_type="single_value", enable_exception=True,
+            query=f"SELECT COUNT(*) FROM order_event WHERE {column} IS NOT NULL")
+        fact(f"there are {kind} rows in the outbox to check", events > 0, f"{events} rows")
+
+        event_without_change = invoke_pg_query(
+            connection=pg_connection, as_type="single_value", enable_exception=True,
+            query=f"SELECT COUNT(*) FROM order_event e WHERE e.{column} IS NOT NULL "
+                  f"AND NOT EXISTS (SELECT 1 FROM order_header h "
+                  f"WHERE h.id = e.order_id AND h.{column} = e.{column})")
+        fact(f"every {kind} in the outbox has the matching order_header",
+             event_without_change == 0, f"{event_without_change} without")
+
+        change_without_event = invoke_pg_query(
+            connection=pg_connection, as_type="single_value", enable_exception=True,
+            query=f"SELECT COUNT(*) FROM order_header h WHERE h.{column} IS NOT NULL "
+                  f"AND NOT EXISTS (SELECT 1 FROM order_event e "
+                  f"WHERE e.order_id = h.id AND e.{column} = h.{column})")
+        fact(f"every {kind} order_header has the matching outbox row",
+             change_without_event == 0, f"{change_without_event} without")
+
+    ###########################################################################
+    # The topic
+    ###########################################################################
+
     scan = connect_kfk_consumer(instance=INSTANCE, group_id=f"verify-scan-{uuid.uuid4().hex[:8]}",
                                 from_beginning=True, enable_exception=True)
     low, high = scan.get_watermark_offsets(TopicPartition(TOPIC, 0), timeout=10)

@@ -372,18 +372,27 @@ while True:
                 "payment_uuid": uuid.uuid4(),
                 "updated_at": get_local_timestamp()
             }
+            # The change and the outbox row are one unit of work, and that is the whole point of an
+            # outbox: if the order was not paid for, there is no row claiming it was. These used to
+            # be two separate committed statements, so a crash between them left a paid order with
+            # nothing to say so - and demo 6 had to explain the gap instead of the pattern.
             invoke_pg_query(
                 connection=pg_connection,
                 query="UPDATE order_header SET updated_at = :updated_at, payment_uuid = :payment_uuid WHERE id = :order_id",
                 parameter_values=payment,
+                commit=False,
                 enable_exception=True
             )
             invoke_pg_query(
                 connection=pg_connection,
                 query="INSERT INTO order_event (order_id, updated_at, payment_uuid) VALUES (:order_id, :updated_at, :payment_uuid)",
                 parameter_values=payment,
+                commit=False,
                 enable_exception=True
             )
+            pg_connection.commit()
+
+            # After the commit, for the reason the order block above gives
             log("Added payment", component="Payment", details=payment)
 
         new_payment["next_run"] = datetime.now() + timedelta(seconds=new_payment["delay_sec"])
@@ -405,18 +414,23 @@ while True:
                 "shipment_uuid": uuid.uuid4(),
                 "updated_at": get_local_timestamp()
             }
+            # One unit of work, the same as the payment block above
             invoke_pg_query(
                 connection=pg_connection,
                 query="UPDATE order_header SET updated_at = :updated_at, shipment_uuid = :shipment_uuid WHERE id = :order_id",
                 parameter_values=shipment,
+                commit=False,
                 enable_exception=True
             )
             invoke_pg_query(
                 connection=pg_connection,
                 query="INSERT INTO order_event (order_id, updated_at, shipment_uuid) VALUES (:order_id, :updated_at, :shipment_uuid)",
                 parameter_values=shipment,
+                commit=False,
                 enable_exception=True
             )
+            pg_connection.commit()
+
             log("Added shipment", component="Shipment", details=shipment)
 
         new_shipment["next_run"] = datetime.now() + timedelta(seconds=new_shipment["delay_sec"])
