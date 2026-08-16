@@ -285,9 +285,11 @@ for most of them, and finishes on the Windows side:
 | `06_test_connections.py` again | you, on Windows | Waits until Windows can reach the container ports, then runs the same check from the side that runs the demos |
 | `docker compose stop` | root, in WSL2 | Stops the containers again. The setup is finished; `start_demo.ps1` is what starts a demo |
 
-Every step announces itself before it runs, and the slow ones say roughly how long they take —
-`04_docker_compose.sh` is quiet for about two minutes while it waits for Oracle, and a quiet stretch
-with no output is hard to tell from a script that has hung.
+Every step announces itself before it runs with the time it started, the slow ones say roughly how
+long they take, and each one is closed off with what it actually took — so the timing of a run can be
+read off the output afterwards rather than guessed at. `04_docker_compose.sh` is quiet for about two
+minutes while it waits for Oracle, and a quiet stretch with no output is hard to tell from a script
+that has hung. The times are local, while the container logs are UTC.
 
 The first and last rows are not an afterthought. The notebooks run on the Windows Python, not on the
 one in WSL2, so without them the setup can finish green while a notebook still fails on a missing
@@ -311,7 +313,12 @@ minute if you want to look into it.
 Python is installed with pyenv, which compiles it from source, so step 2 takes several minutes. It is
 installed for your user account and not for root, which is why the later steps do not use `--user root`.
 
-The whole run takes about half an hour. If you are installing both repositories, see
+The whole run takes about ten minutes - measured at 7:51 into a WSL2 that the sibling repository had
+already set up, so docker, 7-Zip and the two large database images were there and only pyenv, the
+packages and this repository's own containers were new. Installing this one first costs the rest of
+that. The last line of the script reports the total, which is the number to trust on your machine.
+
+If you are installing both repositories, see
 [Sharing one WSL2 installation with the sibling repository](#sharing-one-wsl2-installation-with-the-sibling-repository).
 
 

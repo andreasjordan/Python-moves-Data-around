@@ -4,6 +4,29 @@
 # that a failure in an early block silently skipped everything after it.
 set -e
 
+# Each block says what it is doing and when it started.
+#
+# This is not decoration. apt is quietened below, and its output used to be the only sign that
+# this script - the longest stretch of the whole setup - was still alive. One line per block
+# replaces several hundred, and the timestamps are what make a run's timing readable afterwards.
+# Local time, like 01_setup.ps1 and unlike the container logs, which are UTC.
+step() {
+    echo ""
+    echo "--> [$(date +%H:%M:%S)] $*"
+}
+
+# Quieten apt, which is by far the noisiest thing in this script. Package lists and unpacking
+# progress are not read unless something fails, so stdout goes to /dev/null - and stderr does
+# not, so a failure still says why and "set -e" still stops the script.
+#
+# "apt-get" rather than "apt" everywhere, because "apt" writes a warning about its unstable CLI
+# to stderr, which is exactly the stream being kept.
+export DEBIAN_FRONTEND=noninteractive
+
+apt_get() {
+    apt-get -qq -y "$@" >/dev/null
+}
+
 # setup DNS
 # DNS inside of WSL2 is sometimes a problem
 # In the beginning, /etc/resolv.conf is a symlink to /mnt/wsl/resolv.conf and name resolution works
@@ -24,35 +47,42 @@ SETUP_USER="$(getent passwd 1000 | cut -d: -f1)"
 echo "Setting up for user $SETUP_USER"
 
 # update packages
-apt update && \
-apt -y upgrade
+step "Updating the package lists"
+apt_get update
+apt_get upgrade
 
 # install the Microsoft ODBC driver for SQL Server
 # https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server
 # This is the same package repository the sibling repository uses to install PowerShell.
 # unixodbc-dev is needed in case pip has to build pyodbc from source instead of using a wheel.
-apt-get install -y wget apt-transport-https software-properties-common && \
-wget -q -O /tmp/packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb" && \
-dpkg -i /tmp/packages-microsoft-prod.deb && \
-apt-get update && \
-ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+step "Installing the Microsoft ODBC driver"
+apt_get install wget apt-transport-https software-properties-common
+wget -q -O /tmp/packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+dpkg -i /tmp/packages-microsoft-prod.deb >/dev/null
+apt_get update
+# The driver package wants the EULA accepted in the environment. Exported on its own line rather
+# than prefixed to the call, because apt_get is a shell function and a prefix would not reach it.
+export ACCEPT_EULA=Y
+apt_get install msodbcsql18 unixodbc-dev
 
 # install docker
 # https://docs.docker.com/engine/install/ubuntu/
-apt-get install -y ca-certificates curl gnupg2 lsb-release && \
-mkdir -p /etc/apt/keyrings && \
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg && \
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-apt update && \
-apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin && \
-update-alternatives --set iptables /usr/sbin/iptables-legacy && \
+step "Installing docker"
+apt_get install ca-certificates curl gnupg2 lsb-release
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+apt_get update
+apt_get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+update-alternatives --set iptables /usr/sbin/iptables-legacy
 service docker start
 # As of April 2025, we need a restart so that docker can setup the network for the containers.
 # But as we need a restart of the WSL2, we currently don't need this.
 # service docker restart
 
 # install 7zip
-apt-get install -y p7zip-full
+step "Installing 7-Zip"
+apt_get install p7zip-full
 
 # install the build dependencies for pyenv
 #Note, selecting 'libncurses-dev' instead of 'libncursesw5-dev'
@@ -61,13 +91,19 @@ apt-get install -y p7zip-full
 #git set to manually installed.
 #xz-utils is already the newest version (5.6.1+really5.4.5-1ubuntu0.3).
 #xz-utils set to manually installed.
-apt-get install -y make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses-dev tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+step "Installing the pyenv build dependencies"
+apt_get install make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses-dev tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
 
 # install pyenv and Python as the demo user
 # pyenv compiles Python from source, so this step takes several minutes.
 # The initialisation goes into ~/.profile and not only into ~/.bashrc, because ~/.bashrc
 # returns immediately when it is not run interactively - which is exactly how the later
 # setup steps are started. Without this, pyenv would not be on the PATH for any of them.
+#
+# pyenv's own output is left alone. The installer clones four git repositories and that is about
+# thirty lines - but git writes its progress to stderr, so the redirect used for apt would not
+# have silenced it anyway, and discarding stderr is the one thing this file does not do.
+step "Installing pyenv and Python 3.14.6, which is compiled from source"
 sudo -u "$SETUP_USER" -H bash <<'EOF'
 set -e
 
@@ -102,6 +138,14 @@ EOF
 # docker save -o /mnt/c/tmp/DockerImages/Oracle.tar container-registry.oracle.com/database/express:21.3.0-xe
 
 # Load docker images from files to save time and download data volume
+#
+# Its own step line, because this is where the minutes go on a machine that has the tars - two
+# large images read off disk. Without it that time is billed to the pyenv step above, whose
+# output it otherwise appears underneath.
+if [ -f "/mnt/c/tmp/DockerImages/SQLServer.tar" ] || [ -f "/mnt/c/tmp/DockerImages/Oracle.tar" ]; then
+    step "Loading the saved docker images"
+fi
+
 if [ -f "/mnt/c/tmp/DockerImages/SQLServer.tar" ]; then
     if ! docker image inspect mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04 >/dev/null 2>&1; then
         echo "Loading docker image 2025-CU5-ubuntu-24.04 for SQL Server from file..."

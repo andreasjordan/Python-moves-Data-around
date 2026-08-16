@@ -163,25 +163,50 @@ problem, and it proves the thing that matters — that a default distribution ex
 would be a rule nobody has decided. The version is printed instead. What *is* checked is that `python`
 answers at all: on Windows it is often the Microsoft Store stub, which is on the PATH and does nothing.
 
-### Two setup improvements on the list, agreed and not done
+### Every step announces itself, and says what it cost
 
-Both are the owner's, both are low priority, and both apply to **this repository and the sibling** —
-so do them on both sides in one turn. Do not treat either as a finding, and do not do them as a side
-effect of an unrelated task.
+`Write-Step` in `01_setup.ps1` prints a banner before each step with the wall-clock time it started,
+the slow ones say roughly how long they take, and each step is closed off with what it actually took.
+The last line reports the total. This exists because **a quiet stretch is indistinguishable from a
+hung script**: `04_docker_compose.sh` is silent for about two minutes while it waits for Oracle. The
+Windows port wait prints one line per port for the same reason — a forward that lags the others by
+minutes looks exactly like a hang.
 
-1. **Timestamps in the step messages**, so that the actual timing of a run can be read off the output
-   instead of guessed at.
-2. **Quieten the noisy commands**, `apt-get` in `02_wsl2_setup.sh` above all, so that a run does not
-   fill the terminal. Keep the failure output loud while doing it: `04_docker_compose.sh` prints
-   `docker compose logs --tail 50` on its failure path precisely because a silent probe explains
-   nothing, and that is the opposite trade from this one.
+The measured `took` lines exist because the estimates have been wrong: Oracle's first start was
+written down as a quarter of an hour and is about two minutes. A run now reports its own timing
+rather than leaving it to be remembered. Note that the durations are floored, not rounded — casting a
+`TimeSpan`'s `TotalMinutes` with `[int]` rounds, so 59 seconds would print as `1:59`.
 
-### Every step of `01_setup.ps1` announces itself
+**The clock is local time and the container logs are UTC.** That difference is what makes a failure
+here and the container log behind it look unrelated at a glance.
 
-`Write-Step` prints a banner before each step, and the slow ones say roughly how long they take.
-This exists because **a quiet stretch is indistinguishable from a hung script**: `04_docker_compose.sh`
-is silent for about two minutes while it waits for Oracle. The Windows port wait prints one line per
-port for the same reason — a forward that lags the others by minutes looks exactly like a hang.
+`02_wsl2_setup.sh` and `03_python_setup.sh` have the same idea in shell: a `step` function that echoes
+one timestamped line per block, and a wrapper around the noisy command that sends **stdout** to
+`/dev/null` and keeps **stderr**. So a failure still says why and `set -e` still stops the script,
+while several hundred lines of progress nobody reads do not reach the terminal.
+
+**The step lines are load-bearing rather than decoration.** Without them, quietening the command
+would replace that output with a silent multi-minute stretch, which is the very thing the banners
+exist to prevent.
+
+In `02` it is `apt_get()`, and it is `apt-get` rather than `apt` throughout, because `apt` warns about
+its unstable CLI on stderr — the stream being kept. In `03` it is `pip_install()`, which costs the
+`Successfully installed …` line; `requirements.txt` is deliberately unpinned so that record was never
+reproducible anyway, and `00_check_host.ps1` prints the versions on the Windows side.
+
+**`03_pwsh_setup.ps1` in the sibling has no counterpart to this, and that is not drift.** It prints
+one line per module it actually installs and nothing else — the `Import-*Library` functions log at
+`Verbose`, which is suppressed. There is nothing there to silence.
+
+**pyenv's own output is deliberately left alone.** Its installer clones four git repositories, which
+is about thirty lines — but git writes progress to **stderr**, so the redirect used for apt would not
+silence it anyway, and discarding stderr is the one thing that file does not do. `ACCEPT_EULA=Y` is
+exported on its own line rather than prefixed to the call, because `apt_get` is a shell function and
+a prefix would not reach the `apt-get` behind it.
+
+**Do not quieten a failure path.** `04_docker_compose.sh` prints `docker compose logs --tail 50` when
+a wait gives up precisely because a silent probe explains nothing, and that is the opposite trade
+from this one.
 
 ### `01_setup.ps1` builds, `start_demo.ps1` runs
 
