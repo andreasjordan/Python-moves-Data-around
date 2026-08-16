@@ -464,10 +464,31 @@ def connect_sql_instance(
   The `return None` matters — without it execution continues into code that assumes the failed step
   worked. A function that raises unconditionally, or that has no `enable_exception` at all, does not
   meet the contract.
-- Progress and diagnostics go through `print()` with a level tag, the stand-in for the sibling's
-  `Write-PSFMessage`: `[VERBOSE]` inside `lib/`, `[ERROR]` on the failure path. Notebooks print
-  whatever reads well. Do not introduce `logging` in `lib/` without being asked — there is a commented
-  sketch at the bottom of `connect_sql_instance.py` and that decision is still open.
+- **Messages go through the stdlib `logging` module**, which is the counterpart of the sibling's
+  PSFramework. Every file opens with
+
+  ```python
+  logger = logging.getLogger("lib." + __name__)
+  ```
+
+  The `"lib."` prefix is load-bearing: there is no package here, so `__name__` is bare
+  (`write_sql_table`) and there would otherwise be no common parent to configure. It gives one
+  handle for the whole library, and keeps psycopg, pymongo and confluent-kafka from logging their
+  own internals into the same file.
+
+  Three levels, and the split is deliberate:
+
+  | Level | What | Counterpart |
+  | --- | --- | --- |
+  | `logger.debug` | the running commentary — opening a connection, creating a cursor, truncating | `Write-PSFMessage -Level Verbose` |
+  | `logger.info` | bulk-load progress and the line that says it finished | `Write-Progress -Id 1`, which the audience sees |
+  | `logger.error` | the failure path of the `enable_exception` contract | `Stop-PSFFunction` |
+
+  **Nothing in `lib/` calls `print()`.** Notebooks print whatever reads well, and the setup and
+  verify scripts print their own progress — that is the counterpart of `-Level Host`.
+
+  `demo/configure_logging.py` is what a notebook calls to see any of it. Without it the messages
+  are dropped, which is why the `06_test_connections.py` and `verify/` output is quiet.
 - **No emoji in `lib/`.** `demo/import_xls_timesheet.py` prints `📄` and `↳`; that is fine in Jupyter,
   which is UTF-8, but the same code raises `UnicodeEncodeError` in a `cp1252` Windows console.
 - Cursors, readers and files are closed on every path — `try/finally`, or a `with` block where the
@@ -615,8 +636,7 @@ next occurrence, which is the one you would want to hear about.
 **Set `PYTHONIOENCODING=utf-8` on anything that prints repository content.** The console is `cp1252`
 and the sample data is not ASCII — a StackExchange display name is `ypercubeᵀᴹ`, `import_gpx_file`
 prints `📄`. Without it an inspection script dies with `UnicodeEncodeError` partway through, which
-looks like a broken notebook and is not one. The `[VERBOSE]` lines are also worth filtering out when
-reading a verification run; there are thousands of them.
+looks like a broken notebook and is not one.
 
 ### But static checks are not enough
 

@@ -1,4 +1,7 @@
+import logging
 from confluent_kafka import Consumer
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # The counterpart of connect_kfk_producer - see the note there about why there are two.
@@ -8,7 +11,7 @@ def connect_kfk_consumer(
     from_beginning=False,
     enable_exception=False
 ):
-    print(f"[VERBOSE] Creating consumer for instance [{instance}] in group [{group_id}]")
+    logger.debug(f"Creating consumer for instance [{instance}] in group [{group_id}]")
 
     # group_id is what Kafka remembers a reader by. Two consumers in the same group share the
     # work and share one set of offsets; a consumer in a new group has never read anything.
@@ -25,10 +28,10 @@ def connect_kfk_consumer(
     try:
         consumer = Consumer(configuration)
 
-        print("[VERBOSE] Checking the connection")
+        logger.debug("Checking the connection")
         consumer.list_topics(timeout=10)
 
-        print("[VERBOSE] Returning consumer")
+        logger.debug("Returning consumer")
         return consumer
 
     except Exception as e:
@@ -36,5 +39,5 @@ def connect_kfk_consumer(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

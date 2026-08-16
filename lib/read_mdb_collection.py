@@ -1,4 +1,7 @@
+import logging
 import pandas as pd
+
+logger = logging.getLogger("lib." + __name__)
 
 
 def read_mdb_collection(
@@ -13,7 +16,7 @@ def read_mdb_collection(
     enable_exception=False
 ):
     try:
-        print(f"[VERBOSE] Reading collection {collection}")
+        logger.debug(f"Reading collection {collection}")
 
         # The filter, the projection and the sort are passed straight through. They are
         # dictionaries here and hashtables in the sibling, so a call site is almost the same:
@@ -30,7 +33,7 @@ def read_mdb_collection(
             cursor = cursor.limit(first)
 
         documents = list(cursor)
-        print(f"[VERBOSE] Retrieved {len(documents)} documents")
+        logger.debug(f"Retrieved {len(documents)} documents")
 
         if as_type == "dict":
             # A document already is a dict, so unlike the invoke_*_query functions there is
@@ -50,5 +53,5 @@ def read_mdb_collection(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

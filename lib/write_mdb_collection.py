@@ -1,12 +1,15 @@
+import logging
 import time
 
+logger = logging.getLogger("lib." + __name__)
 
-def _print_progress(inserted, total_rows, start_time):
+
+def _log_progress(inserted, total_rows, start_time):
     elapsed = time.time() - start_time
     rate = inserted / elapsed if elapsed > 0 else 0
 
-    print(
-        f"[VERBOSE] {inserted}/{total_rows} documents inserted "
+    logger.info(
+        f"{inserted}/{total_rows} documents inserted "
         f"({inserted / total_rows * 100:.1f}%) "
         f"- {int(rate)} documents/sec"
     )
@@ -27,12 +30,12 @@ def write_mdb_collection(
         if not len(data):
             raise Exception("No documents to import, data is empty")
 
-        print(f"[VERBOSE] Importing data into {collection}")
+        logger.debug(f"Importing data into {collection}")
 
         if truncate_collection:
             # MongoDB has no TRUNCATE. The collection is dropped and the first insert creates
             # it again, which is what the sibling does as well.
-            print("[VERBOSE] Dropping collection")
+            logger.debug("Dropping collection")
             connection.drop_collection(collection)
 
         target = connection[collection]
@@ -44,20 +47,20 @@ def write_mdb_collection(
         # built them decided what type each value has.
 
         total_rows = len(data)
-        print(f"[VERBOSE] Inserting {total_rows} documents")
+        logger.debug(f"Inserting {total_rows} documents")
 
         start_time = time.time()
 
         for start in range(0, total_rows, batch_size):
             target.insert_many(data[start:start + batch_size])
-            _print_progress(min(start + batch_size, total_rows), total_rows, start_time)
+            _log_progress(min(start + batch_size, total_rows), total_rows, start_time)
 
-        print("[VERBOSE] Bulk insert complete")
+        logger.info("Bulk insert complete")
 
     except Exception as e:
         message = f"Importing data failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

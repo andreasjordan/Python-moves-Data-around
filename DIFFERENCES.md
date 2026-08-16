@@ -1184,17 +1184,50 @@ has to run it. Output must never be written by hand.
 ### Progress and logging
 
 **The sibling:** `Write-PSFMessage` from PSFramework, with `Write-Progress -Id 1` for long operations.
-Because PSFramework keeps a message log, demo 02 can run `Get-PSFMessage | Where-Object Message -like
-Finished*Milliseconds` afterwards to compare the timings of three imports.
+PSFramework gives three things at once: a level per message so `-Level Verbose` is hidden by default,
+log files on disk, and an in-memory message log — which is how demo 02 runs
+`Get-PSFMessage | Where-Object Message -like Finished*Milliseconds` afterwards to compare the timings
+of three imports.
 
-**Python:** `print()` with a level tag — `[VERBOSE]` inside `lib/`, `[ERROR]` on the failure path.
+**Python:** `print()` with a level tag had none of the three. Every `[VERBOSE]` line was on screen
+always, nothing was kept, and nothing could be queried. Measured on a clean install:
+`06_test_connections.py` printed about a hundred lines where the sibling's printed nine.
 
-**Consequence:** there is no message log to query afterwards, so a function that wants its duration
-shown has to print it itself. `import_sql_table` ends with its own `Imported N rows in X seconds` for
-exactly that reason.
+**Decision: the stdlib `logging` module**, which happens to model all three. `logger.debug` for the
+commentary, `logger.info` for bulk-load progress — the counterpart of `Write-Progress`, which the
+audience does see — and `logger.error` for the failure path of the `enable_exception` contract.
+`demo/configure_logging.py` is the counterpart of `Import-Module PSFramework`: console at INFO, file
+at DEBUG, and a `MessageLog` handler whose records become a DataFrame. So the side-by-side is
 
-**Open:** whether to move `lib/` to `logging`. A commented sketch sits at the bottom of
-`connect_sql_instance.py` and the decision has not been made.
+```powershell
+Get-PSFMessage | Where-Object Message -like Finished*Milliseconds | Select-Object -Last 3
+```
+```python
+pd.DataFrame(messages.records).query("message.str.startswith('Finished')").tail(3)
+```
+
+and the message log lands in the shape this repository moves everything else around in.
+
+**Rejected:** `loguru`, which has the nicer API but adds a dependency and hides the mechanism; and a
+hand-rolled `VERBOSE = False` flag, which reinvents level filtering badly and gives neither the file
+nor the query.
+
+**Four things the port forced, none of them obvious:**
+
+- **`logging.getLogger("lib." + __name__)`, not `getLogger(__name__)`.** There is no package here, so
+  `__name__` is bare — `write_sql_table`, not `lib.write_sql_table` — and there is no common parent
+  to configure. Without the prefix the only handle is the *root* logger, which also captures psycopg,
+  pymongo and confluent-kafka logging their own internals into the same file.
+- **`StreamHandler` writes to stderr by default, and Jupyter paints stderr on a red background.** Every
+  progress line would look like an error on a projector. `configure_logging` passes `sys.stdout`.
+- **`logging.basicConfig` does nothing when a handler already exists**, which in Jupyter it may. It
+  fails by silently doing nothing, which reads as "logging is broken". The handlers are assigned
+  explicitly instead.
+- **Assigning `logger.handlers` rather than calling `addHandler`.** A notebook cell gets re-run, and
+  `addHandler` would attach a second copy each time — every message twice, then three times.
+
+**What it fixed on the way:** `import_sql_table` used to end with its own `Imported N rows in X
+seconds` because there was no message log to query afterwards. There is one now.
 
 ### Non-ASCII output
 

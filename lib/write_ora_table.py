@@ -1,7 +1,10 @@
+import logging
 import time
 
 import oracledb
 import pandas as pd
+
+logger = logging.getLogger("lib." + __name__)
 
 # oracledb binds a Python datetime as DB_TYPE_DATE, and an Oracle DATE holds whole seconds, so
 # the fractional seconds are dropped without an error. The TIMESTAMP columns have to be declared
@@ -23,18 +26,18 @@ def _quote_table_name(table):
     return ".".join(_quote_identifier(part) for part in table.split("."))
 
 
-def _print_progress(inserted, total_rows, start_time):
+def _log_progress(inserted, total_rows, start_time):
     elapsed = time.time() - start_time
     rate = inserted / elapsed if elapsed > 0 else 0
 
     if total_rows:
-        print(
-            f"[VERBOSE] {inserted}/{total_rows} rows inserted "
+        logger.info(
+            f"{inserted}/{total_rows} rows inserted "
             f"({inserted / total_rows * 100:.1f}%) "
             f"- {int(rate)} rows/sec"
         )
     else:
-        print(f"[VERBOSE] {inserted} rows inserted - {int(rate)} rows/sec")
+        logger.info(f"{inserted} rows inserted - {int(rate)} rows/sec")
 
 
 # DIFFERENCE: the sibling takes a -Transaction and hands it to the command. In Python the
@@ -68,9 +71,9 @@ def write_ora_table(
                 raise Exception("No rows to import, the DataFrame is empty")
 
         quoted_table = _quote_table_name(table)
-        print(f"[VERBOSE] Importing data into {quoted_table}")
+        logger.debug(f"Importing data into {quoted_table}")
 
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
         # Get the column names of the target table, and the bind type for the ones that need one
@@ -79,7 +82,7 @@ def write_ora_table(
         bind_types = [_BIND_TYPES.get(column.type_code) for column in cursor.description]
 
         if truncate_table:
-            print("[VERBOSE] Truncating table")
+            logger.debug("Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
             if commit:
                 connection.commit()
@@ -103,7 +106,7 @@ def write_ora_table(
             positions = [position_of.get(column.lower()) for column in columns]
 
             total_rows = len(data)
-            print(f"[VERBOSE] Inserting {total_rows} rows")
+            logger.debug(f"Inserting {total_rows} rows")
 
             values = [
                 tuple(
@@ -119,7 +122,7 @@ def write_ora_table(
                     connection.commit()
 
                 inserted = min(start + batch_size, total_rows)
-                _print_progress(inserted, total_rows, start_time)
+                _log_progress(inserted, total_rows, start_time)
 
         else:
             # Streaming from another table, possibly in another database system. The rows are
@@ -135,7 +138,7 @@ def write_ora_table(
             positions = [position_of.get(column.lower()) for column in columns]
 
             total_rows = data_reader_row_count
-            print("[VERBOSE] Inserting rows from the data reader")
+            logger.debug("Inserting rows from the data reader")
 
             while True:
                 rows = data_reader.fetchmany(batch_size)
@@ -150,16 +153,16 @@ def write_ora_table(
                     connection.commit()
 
                 inserted += len(rows)
-                _print_progress(inserted, total_rows, start_time)
+                _log_progress(inserted, total_rows, start_time)
 
-        print("[VERBOSE] Bulk insert complete")
+        logger.info("Bulk insert complete")
 
     except Exception as e:
         message = f"Writing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:

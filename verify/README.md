@@ -37,8 +37,9 @@ python verify/02_stackexchange.py --report-path C:\tmp\stackexchange.txt
 ```
 
 **Set `PYTHONIOENCODING=utf-8` if you redirect the output.** The console is `cp1252` and the sample
-data is not ASCII — a StackExchange display name is `ypercubeᵀᴹ`. The `[VERBOSE]` lines from `lib/`
-are also worth filtering out when reading a run; there are thousands of them.
+data is not ASCII — a StackExchange display name is `ypercubeᵀᴹ`. These scripts do not configure
+logging, so the `lib/` messages are dropped and a run prints only its own `PASS`/`FAIL` lines. Call
+`configure_logging` from `demo/` if you need to see what a function did.
 
 **Why a report file exists at all:** a caller that redirects stdout may see nothing until the process
 exits. `--report-path` writes with `buffering=1`, which matters for the two scripts that take minutes.

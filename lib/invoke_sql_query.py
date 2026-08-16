@@ -1,6 +1,9 @@
+import logging
 import re
 
 import pandas as pd
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # PROBLEM: pyodbc does not support named parameters, only positional "?" placeholders.
@@ -64,13 +67,13 @@ def invoke_sql_query(
     cursor = None
 
     try:
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
 #        # Timeout
 #        cursor.timeout = query_timeout
 
-        print("[VERBOSE] Executing query")
+        logger.debug("Executing query")
 
         query, params = _prepare_query_and_params(query, parameter_values)
         if params is not None:
@@ -84,7 +87,7 @@ def invoke_sql_query(
         if cursor.description:
             columns = [column[0] for column in cursor.description]
             rows = cursor.fetchall()
-            print(f"[VERBOSE] Retrieved {len(rows)} rows")
+            logger.debug(f"Retrieved {len(rows)} rows")
 
             # DB-API opens a transaction for a SELECT as well, and it stays open until it is
             # ended. SQL Server releases the read locks at the end of the statement, so this is
@@ -120,7 +123,7 @@ def invoke_sql_query(
             # Non-query SQL (DDL/DML) executed successfully
             if commit and not connection.autocommit:
                 connection.commit()
-            print(f"[VERBOSE] Non-query executed, rowcount={cursor.rowcount}")
+            logger.debug(f"Non-query executed, rowcount={cursor.rowcount}")
             return None
 
     except Exception as e:
@@ -135,7 +138,7 @@ def invoke_sql_query(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:

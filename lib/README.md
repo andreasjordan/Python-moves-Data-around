@@ -24,8 +24,15 @@ Every module is `<verb>_<prefix>_<noun>.py` and holds one public function of the
 **pg** = PostgreSQL · **mdb** = MongoDB · **kfk** = Kafka.
 
 Every function takes `enable_exception=False`. With it, a failure raises; without it, the function
-prints `[ERROR] …` and returns `None`. Callers turn it on per call — there is no equivalent of
-PowerShell's `$PSDefaultParameterValues`, which is why it has to be passed explicitly.
+logs the message at `ERROR` and returns `None`. Callers turn it on per call — there is no equivalent
+of PowerShell's `$PSDefaultParameterValues`, which is why it has to be passed explicitly.
+
+**Nothing here prints.** Messages go to `logging.getLogger("lib." + __name__)`: `debug` for the
+running commentary, `info` for bulk-load progress, `error` for the failure path above. That is the
+counterpart of the sibling's PSFramework, and it means a caller that has configured nothing sees
+nothing — which is why `06_test_connections.py` and `verify/` are quiet. `demo/configure_logging.py`
+is what a notebook calls to put the progress on screen, everything in `demo.log`, and every message
+into a `MessageLog` that becomes a DataFrame — the counterpart of `Get-PSFMessage`.
 
 ## What exists today
 

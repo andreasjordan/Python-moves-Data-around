@@ -1,4 +1,7 @@
+import logging
 import psycopg
+
+logger = logging.getLogger("lib." + __name__)
 
 
 def connect_pg_instance(
@@ -9,7 +12,7 @@ def connect_pg_instance(
     pooled_connection=False,
     enable_exception=False
 ):
-    print(f"[VERBOSE] Creating connection to instance [{instance}]")
+    logger.debug(f"Creating connection to instance [{instance}]")
 
     # The instance may carry a port, the same way the sibling function accepts it: 127.0.0.1:5432
     if ":" in instance:
@@ -26,22 +29,22 @@ def connect_pg_instance(
         connection_parameters["dbname"] = database
 
     if username and password:
-        print("[VERBOSE] Using password authentication")
+        logger.debug("Using password authentication")
         connection_parameters["user"] = username
         connection_parameters["password"] = password
     else:
-        print("[VERBOSE] Using the current operating system user")
+        logger.debug("Using the current operating system user")
 
     if pooled_connection:
         # Npgsql pools inside the connection string. psycopg keeps pooling in a separate
         # package, psycopg_pool, which this repository does not use.
-        print("[VERBOSE] Connection pooling is not implemented, opening a single connection")
+        logger.debug("Connection pooling is not implemented, opening a single connection")
 
     try:
-        print("[VERBOSE] Opening connection")
+        logger.debug("Opening connection")
         connection = psycopg.connect(**connection_parameters)
 
-        print("[VERBOSE] Returning connection object")
+        logger.debug("Returning connection object")
         return connection
 
     except Exception as e:
@@ -49,5 +52,5 @@ def connect_pg_instance(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

@@ -1,6 +1,9 @@
 import json
+import logging
 
 import pandas as pd
+
+logger = logging.getLogger("lib." + __name__)
 
 
 def read_kfk_topic(
@@ -12,7 +15,7 @@ def read_kfk_topic(
     enable_exception=False
 ):
     try:
-        print(f"[VERBOSE] Subscribing to topic {topic}")
+        logger.debug(f"Subscribing to topic {topic}")
         connection.subscribe([topic])
 
         messages = []
@@ -21,8 +24,8 @@ def read_kfk_topic(
         # topic has no end, so this one needs a stopping rule instead: `first` messages, or
         # `timeout` seconds with nothing new. That is not a limitation of the port - it is what
         # reading a log is.
-        print(f"[VERBOSE] Reading, stopping after {first} messages" if first else
-              f"[VERBOSE] Reading, stopping after {timeout} seconds without a message")
+        logger.debug(f"Reading, stopping after {first} messages" if first else
+              f"Reading, stopping after {timeout} seconds without a message")
 
         while True:
             message = connection.poll(timeout)
@@ -38,7 +41,7 @@ def read_kfk_topic(
             if first and len(messages) >= first:
                 break
 
-        print(f"[VERBOSE] Retrieved {len(messages)} messages")
+        logger.debug(f"Retrieved {len(messages)} messages")
 
         if as_type == "dict":
             return messages
@@ -56,5 +59,5 @@ def read_kfk_topic(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

@@ -1,4 +1,7 @@
+import logging
 import oracledb
+
+logger = logging.getLogger("lib." + __name__)
 
 
 def connect_ora_instance(
@@ -9,7 +12,7 @@ def connect_ora_instance(
     pooled_connection=False,
     enable_exception=False
 ):
-    print(f"[VERBOSE] Creating connection to instance [{instance}]")
+    logger.debug(f"Creating connection to instance [{instance}]")
 
     # DIFFERENCE: by default oracledb hands out a CLOB as a LOB object - a handle that has to be
     # read separately - where ADO.NET gives the sibling a string. A DataFrame full of those still
@@ -28,14 +31,14 @@ def connect_ora_instance(
     }
 
     if username and password:
-        print("[VERBOSE] Using password authentication")
+        logger.debug("Using password authentication")
         connection_parameters["user"] = username
         connection_parameters["password"] = password
     else:
-        print("[VERBOSE] Using the current operating system user")
+        logger.debug("Using the current operating system user")
 
     if as_sysdba:
-        print("[VERBOSE] Adding SYSDBA to the connection")
+        logger.debug("Adding SYSDBA to the connection")
         connection_parameters["mode"] = oracledb.AUTH_MODE_SYSDBA
 
     try:
@@ -44,14 +47,14 @@ def connect_ora_instance(
             # provider both pool through the connection string, psycopg keeps pooling in a
             # separate package that this repository does not use - and oracledb brings a pool
             # of its own. A connection taken from a pool returns to it when it is closed.
-            print("[VERBOSE] Using connection pooling")
+            logger.debug("Using connection pooling")
             pool = oracledb.create_pool(min=1, max=4, increment=1, **connection_parameters)
             connection = pool.acquire()
         else:
-            print("[VERBOSE] Opening connection")
+            logger.debug("Opening connection")
             connection = oracledb.connect(**connection_parameters)
 
-        print("[VERBOSE] Returning connection object")
+        logger.debug("Returning connection object")
         return connection
 
     except Exception as e:
@@ -59,5 +62,5 @@ def connect_ora_instance(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

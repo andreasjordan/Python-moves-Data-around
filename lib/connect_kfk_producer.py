@@ -1,4 +1,7 @@
+import logging
 from confluent_kafka import Producer
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # DIFFERENCE: there is no cell of the grid this fits without splitting. Every other provider here
@@ -10,7 +13,7 @@ def connect_kfk_producer(
     instance,
     enable_exception=False
 ):
-    print(f"[VERBOSE] Creating producer for instance [{instance}]")
+    logger.debug(f"Creating producer for instance [{instance}]")
 
     # Kafka calls this the bootstrap server: the broker that is asked where the others are.
     # There is only one here, so it answers with itself.
@@ -24,10 +27,10 @@ def connect_kfk_producer(
         # A Producer does not contact the broker until the first message, the same way a
         # MongoClient does not until the first operation. Asking for the topic list forces it,
         # so that a broker that is not running fails here rather than somewhere later.
-        print("[VERBOSE] Checking the connection")
+        logger.debug("Checking the connection")
         producer.list_topics(timeout=10)
 
-        print("[VERBOSE] Returning producer")
+        logger.debug("Returning producer")
         return producer
 
     except Exception as e:
@@ -35,5 +38,5 @@ def connect_kfk_producer(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

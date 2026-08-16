@@ -1,8 +1,11 @@
 import contextlib
 import json
+import logging
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # PostgreSQL folds unquoted identifiers to lower case, and the tables of this repository are
@@ -40,9 +43,9 @@ def import_pg_table(
 
     try:
         quoted_table = _quote_table_name(table)
-        print(f"[VERBOSE] Importing data from {path} into {quoted_table}")
+        logger.debug(f"Importing data from {path} into {quoted_table}")
 
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
         # Get the columns of the target table. Unlike the SQL Server version we do not need a
@@ -52,7 +55,7 @@ def import_pg_table(
         columns = [column.name for column in cursor.description]
 
         if truncate_table:
-            print("[VERBOSE] Truncating table")
+            logger.debug("Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
 
         # The column map names the source value for a target column, like CreationDate -> Date
@@ -64,7 +67,7 @@ def import_pg_table(
 
         file_size = Path(path).stat().st_size
 
-        print("[VERBOSE] Inserting rows")
+        logger.debug("Inserting rows")
 
         start_time = time.time()
         data_type = None
@@ -98,15 +101,15 @@ def import_pg_table(
                     elapsed = time.time() - start_time
                     rate = row_count / elapsed if elapsed > 0 else 0
 
-                    print(
-                        f"[VERBOSE] {row_count} rows inserted "
+                    logger.info(
+                        f"{row_count} rows inserted "
                         f"({file.tell() / file_size * 100:.1f}%) "
                         f"- {int(rate)} rows/sec"
                     )
 
         connection.commit()
 
-        print(f"[VERBOSE] Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
+        logger.info(f"Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
 
     except Exception as e:
         # Guarded, because the rollback can fail too and would then replace the real error with
@@ -117,7 +120,7 @@ def import_pg_table(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:

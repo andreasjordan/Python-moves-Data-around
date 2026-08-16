@@ -1,10 +1,13 @@
 import datetime
 import json
+import logging
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import oracledb
+
+logger = logging.getLogger("lib." + __name__)
 
 # DIFFERENCE: the third answer to the same question, and it sits between the other two.
 # import_sql_table has to convert every value, because pyodbc binds a value by its Python type.
@@ -65,9 +68,9 @@ def import_ora_table(
 
     try:
         quoted_table = _quote_table_name(table)
-        print(f"[VERBOSE] Importing data from {path} into {quoted_table}")
+        logger.debug(f"Importing data from {path} into {quoted_table}")
 
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
         # Get the columns of the target table, a converter for the ones that need one, and the
@@ -83,7 +86,7 @@ def import_ora_table(
             bind_types.append(_BIND_TYPES.get(column.type_code))
 
         if truncate_table:
-            print("[VERBOSE] Truncating table")
+            logger.debug("Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
             connection.commit()
 
@@ -104,7 +107,7 @@ def import_ora_table(
 
         file_size = Path(path).stat().st_size
 
-        print("[VERBOSE] Inserting rows")
+        logger.debug("Inserting rows")
 
         start_time = time.time()
         data_type = None
@@ -147,8 +150,8 @@ def import_ora_table(
                     elapsed = time.time() - start_time
                     rate = row_count / elapsed if elapsed > 0 else 0
 
-                    print(
-                        f"[VERBOSE] {row_count} rows inserted "
+                    logger.info(
+                        f"{row_count} rows inserted "
                         f"({file.tell() / file_size * 100:.1f}%) "
                         f"- {int(rate)} rows/sec"
                     )
@@ -157,14 +160,14 @@ def import_ora_table(
                 cursor.executemany(insert_sql, batch)
                 connection.commit()
 
-        print(f"[VERBOSE] Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
+        logger.info(f"Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
 
     except Exception as e:
         message = f"Importing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:

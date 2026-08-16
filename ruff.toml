@@ -32,8 +32,10 @@ select = [
 ]
 
 ignore = [
-    # The lib/ functions print their progress. That is the demo — the audience watches the
-    # output scroll by. Which prefix belongs on which message is enforced by review, not here.
+    # The notebooks, the setup scripts and verify/ print their progress. That is the demo — the
+    # audience watches the output scroll by, and it is the counterpart of the sibling's
+    # `-Level Host`. lib/ is a different matter: nothing in there prints any more, it logs, and
+    # that is enforced by review rather than here, because this rule cannot tell the two apart.
     "T201",
 
     # `except Exception` is the deliberate shape of the enable_exception contract: catch

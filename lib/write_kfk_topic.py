@@ -1,13 +1,16 @@
 import json
+import logging
 import time
 
+logger = logging.getLogger("lib." + __name__)
 
-def _print_progress(produced, total_rows, start_time):
+
+def _log_progress(produced, total_rows, start_time):
     elapsed = time.time() - start_time
     rate = produced / elapsed if elapsed > 0 else 0
 
-    print(
-        f"[VERBOSE] {produced}/{total_rows} messages produced "
+    logger.info(
+        f"{produced}/{total_rows} messages produced "
         f"({produced / total_rows * 100:.1f}%) "
         f"- {int(rate)} messages/sec"
     )
@@ -28,7 +31,7 @@ def write_kfk_topic(
         if not len(data):
             raise Exception("No messages to produce, data is empty")
 
-        print(f"[VERBOSE] Producing to topic {topic}")
+        logger.debug(f"Producing to topic {topic}")
 
         # DIFFERENCE: like write_mdb_collection, there is no target schema to ask about - a topic
         # is a sequence of bytes with no idea what is in them. Unlike a collection, there is not
@@ -40,7 +43,7 @@ def write_kfk_topic(
         # float() for a Decimal - the driver will not guess, so the caller decides.
 
         total_rows = len(data)
-        print(f"[VERBOSE] Producing {total_rows} messages")
+        logger.debug(f"Producing {total_rows} messages")
 
         start_time = time.time()
 
@@ -56,22 +59,22 @@ def write_kfk_topic(
             connection.poll(0)
 
             if produced % batch_size == 0:
-                _print_progress(produced, total_rows, start_time)
+                _log_progress(produced, total_rows, start_time)
 
         # Nothing has necessarily reached the broker until this returns
-        print("[VERBOSE] Flushing")
+        logger.debug("Flushing")
         remaining = connection.flush(30)
 
         if remaining:
             raise Exception(f"{remaining} messages were still queued after the flush timed out")
 
-        _print_progress(total_rows, total_rows, start_time)
-        print("[VERBOSE] Produce complete")
+        _log_progress(total_rows, total_rows, start_time)
+        logger.info("Produce complete")
 
     except Exception as e:
         message = f"Producing to topic failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

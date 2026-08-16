@@ -1,6 +1,9 @@
+import logging
 import time
 
 from confluent_kafka.admin import AdminClient
+
+logger = logging.getLogger("lib." + __name__)
 
 
 def remove_kfk_topic(
@@ -8,7 +11,7 @@ def remove_kfk_topic(
     topic,
     enable_exception=False
 ):
-    print(f"[VERBOSE] Removing topic {topic} on instance [{instance}]")
+    logger.debug(f"Removing topic {topic} on instance [{instance}]")
 
     # docker/photoservice-app.py calls this next to its drop_collection("Orders"). The application
     # restarts its ids at 1 every time it starts, so a topic that outlives the tables ends up
@@ -29,7 +32,7 @@ def remove_kfk_topic(
         # The whole topic list, not list_topics(topic=...) - asking about one topic by name is
         # enough to create it on a broker with auto-creation on, which is the state of this lab.
         if topic not in admin_client.list_topics(timeout=10).topics:
-            print(f"[VERBOSE] Topic {topic} does not exist, so there is nothing to do")
+            logger.debug(f"Topic {topic} does not exist, so there is nothing to do")
             return None
 
         for _, future in admin_client.delete_topics([topic], operation_timeout=30).items():
@@ -40,7 +43,7 @@ def remove_kfk_topic(
         deadline = time.time() + 30
         while time.time() < deadline:
             if topic not in admin_client.list_topics(timeout=10).topics:
-                print(f"[VERBOSE] Removed topic {topic}")
+                logger.debug(f"Removed topic {topic}")
                 return None
             time.sleep(0.5)
 
@@ -51,5 +54,5 @@ def remove_kfk_topic(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

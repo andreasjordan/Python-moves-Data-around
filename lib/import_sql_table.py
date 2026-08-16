@@ -1,9 +1,12 @@
 import datetime
 import decimal
 import json
+import logging
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+logger = logging.getLogger("lib." + __name__)
 
 # This is the counterpart of the typed DataTable in the sibling function. There, the columns
 # of the DataTable are typed from GetSchemaTable() and ADO.NET converts the strings on its own.
@@ -56,9 +59,9 @@ def import_sql_table(
 
     try:
         quoted_table = _quote_table_name(table)
-        print(f"[VERBOSE] Importing data from {path} into {quoted_table}")
+        logger.debug(f"Importing data from {path} into {quoted_table}")
 
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
         # Get the columns of the target table and one converter per column
@@ -74,7 +77,7 @@ def import_sql_table(
             converters.append(_CONVERTERS[type_code])
 
         if truncate_table:
-            print("[VERBOSE] Truncating table")
+            logger.debug("Truncating table")
             cursor.execute(f"TRUNCATE TABLE {quoted_table}")
             connection.commit()
 
@@ -92,7 +95,7 @@ def import_sql_table(
 
         file_size = Path(path).stat().st_size
 
-        print("[VERBOSE] Inserting rows")
+        logger.debug("Inserting rows")
 
         start_time = time.time()
         data_type = None
@@ -135,8 +138,8 @@ def import_sql_table(
                     elapsed = time.time() - start_time
                     rate = row_count / elapsed if elapsed > 0 else 0
 
-                    print(
-                        f"[VERBOSE] {row_count} rows inserted "
+                    logger.info(
+                        f"{row_count} rows inserted "
                         f"({file.tell() / file_size * 100:.1f}%) "
                         f"- {int(rate)} rows/sec"
                     )
@@ -145,14 +148,14 @@ def import_sql_table(
                 cursor.executemany(insert_sql, batch)
                 connection.commit()
 
-        print(f"[VERBOSE] Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
+        logger.info(f"Imported {row_count} rows in {time.time() - start_time:.1f} seconds")
 
     except Exception as e:
         message = f"Importing table failed: {str(e)}"
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:

@@ -1,4 +1,7 @@
+import logging
 from invoke_ora_query import _prepare_query_and_params
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # Oracle folds unquoted identifiers to UPPER CASE, the inverse of PostgreSQL, and the tables of
@@ -28,7 +31,7 @@ def get_ora_data_reader(
         if not query:
             raise Exception("Neither table nor query is used, so there is nothing to read")
 
-        print(f"[VERBOSE] Getting data reader for [{query}]")
+        logger.debug(f"Getting data reader for [{query}]")
 
         # DIFFERENCE: the sibling returns an OracleDataReader and disposes the command that
         # created it. Here the cursor is both, so it is returned as it is - and whoever writes
@@ -41,7 +44,7 @@ def get_ora_data_reader(
         else:
             cursor.execute(query)
 
-        print(f"[VERBOSE] Returning data reader with {len(cursor.description)} columns")
+        logger.debug(f"Returning data reader with {len(cursor.description)} columns")
         return cursor
 
     except Exception as e:
@@ -52,5 +55,5 @@ def get_ora_data_reader(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None

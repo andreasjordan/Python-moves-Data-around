@@ -1,7 +1,10 @@
+import logging
 import re
 
 import oracledb
 import pandas as pd
+
+logger = logging.getLogger("lib." + __name__)
 
 
 # DIFFERENCE: the same regex as in the two sibling functions, but the least work of the three.
@@ -51,10 +54,10 @@ def invoke_ora_query(
     cursor = None
 
     try:
-        print("[VERBOSE] Creating cursor")
+        logger.debug("Creating cursor")
         cursor = connection.cursor()
 
-        print("[VERBOSE] Executing query")
+        logger.debug("Executing query")
 
         query, params = _prepare_query_and_params(query, parameter_values)
 
@@ -81,7 +84,7 @@ def invoke_ora_query(
         if cursor.description:
             columns = [column.name for column in cursor.description]
             rows = cursor.fetchall()
-            print(f"[VERBOSE] Retrieved {len(rows)} rows")
+            logger.debug(f"Retrieved {len(rows)} rows")
 
             # DB-API opens a transaction for a SELECT as well, and it stays open until it is
             # ended. Oracle does not take read locks, so this hurts even less than it does on
@@ -114,7 +117,7 @@ def invoke_ora_query(
             # Non-query SQL (DDL/DML) executed successfully
             if commit and not connection.autocommit:
                 connection.commit()
-            print(f"[VERBOSE] Non-query executed, rowcount={cursor.rowcount}")
+            logger.debug(f"Non-query executed, rowcount={cursor.rowcount}")
             return None
 
     except Exception as e:
@@ -129,7 +132,7 @@ def invoke_ora_query(
         if enable_exception:
             raise Exception(message)
         else:
-            print(f"[ERROR] {message}")
+            logger.error(message)
             return None
 
     finally:
