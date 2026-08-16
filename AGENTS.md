@@ -532,6 +532,7 @@ imported.
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
 | `docker/` | `docker-compose.yaml`, the per-scenario database init SQL/sh/js, and the PhotoService application. |
 | `lib/` | The data access layer. One function per file. |
+| `verify/` | The known-good numbers as runnable scripts, one per scenario, plus `invoke_verify.py` and `verify_common.py`. Needs the containers up. **Not a test suite** — see `verify/README.md`. |
 
 ## The lib/ naming grid
 
@@ -801,6 +802,24 @@ it — or the comparison is measuring nothing.
 If a change really cannot be verified — containers down, driver missing — say so plainly rather than
 claiming it works.
 
+### `verify/` is these numbers, made runnable — start there
+
+Since 2026-08-16 the table below exists as scripts. **Run those instead of writing new ones**, and add
+to them rather than starting again in the scratchpad:
+
+```
+python verify/invoke_verify.py            # all six, ten to fifteen minutes
+python verify/invoke_verify.py --only 06  # one scenario
+```
+
+`verify/README.md` says what each script covers, what it changes, and why two numbers are printed
+rather than asserted. It is **not** a test suite: no pytest, no CI, no fixtures, and `01_setup.ps1`
+does not call it. The sibling has the same folder with the same six scenarios.
+
+Building it found three bugs in the checks themselves in one afternoon, each of which read as a defect
+in the repository for a few minutes. That is the argument for the folder: a throwaway check takes its
+bugs with it.
+
 ### Known-good numbers, measured 2026-08-15 on both repositories
 
 Reproduce these rather than inventing a new check. Both sides were driven through their own shipped
@@ -812,7 +831,7 @@ functions and agreed on every one:
 | StackExchange import | 0 of 12220 differ on either timestamp column, on SQL Server, PostgreSQL and Oracle, **with no tolerance** since the `DATETIME2(3)` change |
 | Timesheets | **94** rows from the three `Department*.xlsx`, 3 departments, 4 people — the same 94 as the sibling, although `-DataOnly` there and `dropna` here keep different intermediate counts |
 | `countries.geojson` | 14643643 bytes, **258** features; PostGIS converts 258/258 with 0 invalid |
-| Oracle `TO_WKTGEOMETRY` | non-deterministic on purpose — seen at 31, 39, 40, 42 and 64 failures over the same 258 rows. **Do not "fix" this or write down a mechanism**; `DIFFERENCES.md` has four rejected explanations |
+| Oracle `TO_WKTGEOMETRY` | non-deterministic on purpose — seen at 26, 31, 39, 40, 42 and 64 failures over the same 258 rows, and two consecutive runs on 2026-08-16 gave 26 and 64. **Do not "fix" this or write down a mechanism**; `DIFFERENCES.md` has four rejected explanations. `verify/03_geodata.py` prints the count and deliberately does not assert it |
 | ProjectStatus | 9 rows after `dropna`, **8** after the `NEW PROJECTS:` heading is skipped, 4 rejected for 4 distinct reasons, 5 land after the colour retry, 3 handed back |
 | PhotoService photos | **24** images, **43.5 MB** — and check they are not `NULL` first, because the `photo` rows exist with a `NULL` image until demo 4's first section loads them |
 

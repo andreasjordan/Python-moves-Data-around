@@ -61,7 +61,7 @@ repository is being ported scenario by scenario:
 | PhotoService demo | Done, see `demo/04_photoservice.ipynb` |
 | ProjectStatus demo | Done, see `demo/05_projectstatus.ipynb` |
 | Event streaming demo | Done, see `demo/06_eventstreaming.ipynb` |
-| `lib/` | Twenty-two functions, for SQL Server, Oracle, PostgreSQL, MongoDB and Kafka |
+| `lib/` | Twenty-three functions, for SQL Server, Oracle, PostgreSQL, MongoDB and Kafka |
 | Containers | Complete — every scenario's databases are created, the PhotoService application runs as a container of its own, and Redpanda serves the Kafka demo. |
 | Setup steps | Ported to Python. Only `01_setup.ps1` is still PowerShell, because that is what Windows starts. |
 
@@ -98,6 +98,7 @@ Working today:
 | `demo/` | The demo notebooks, plus the helper modules a notebook imports. |
 | `docker/` | The compose file, the database init scripts and the PhotoService application. |
 | `lib/` | The functions that do the actual work. See [lib/README.md](lib/README.md) for an overview. |
+| `verify/` | Scripts that check the notebooks still do what they claim, against the running containers. Not a test suite and not part of the setup — see [verify/README.md](verify/README.md). Run `python verify/invoke_verify.py` when you want to know that everything still works. |
 
 
 

@@ -542,6 +542,32 @@ same data type, opposite answers.
 **Why it matters:** the failure is loud, but it is also partial — 187 rows landed and looked fine. A
 row count is not a check.
 
+### json.dumps needs separators, or Indonesia does not fit
+
+**The sibling:** `$feature.geometry | ConvertTo-Json -Depth 4 -Compress`. The `-Compress` removes every
+space.
+
+**Python:** `json.dumps(feature["geometry"], separators=(",", ":"))`. Without the `separators` argument
+json.dumps writes `", "` and `": "`, which on a large coordinate array adds about a third to the
+length.
+
+**Evidence, measured on 2026-08-16 by leaving the argument out:** 257 of the 258 features still land in
+Oracle, and **Indonesia** fails with
+
+```
+ORA-40441: JSON syntax error
+ORA-06512: at "MDSYS.SDO_UTIL", line 7474
+```
+
+PostGIS accepts the spaced form for all 258, so the failure is Oracle's alone and shows up in exactly
+one country. Canada is the largest geometry in the file at 1.5 MB and is *not* the one that breaks,
+which is why this is worth writing down rather than filing under "big geometries are awkward".
+
+**Decision:** keep `separators=(",", ":")`. It is not cosmetic and it is not a style choice, and
+`verify/03_geodata.py` carries the same comment so that the next person to tidy it up finds the reason
+first. The 4000-character CLOB guard in `invoke_ora_query` is a separate thing and does not cover this
+- Indonesia is far over 4000 either way, so the CLOB is bound in both cases.
+
 ### Selecting a geometry column, three answers
 
 **The sibling:** notes in the demo that `SELECT * FROM dbo.berlin_tours` does not work and records the
