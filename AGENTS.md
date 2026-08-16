@@ -395,7 +395,7 @@ and are imported.
 | `demo/` | The notebooks, plus the helper modules a notebook imports. |
 | `docker/` | `docker-compose.yaml`, the per-scenario database init SQL/sh/js, and the PhotoService application. |
 | `lib/` | The data access layer. One function per file. |
-| `verify/` | The known-good numbers as runnable scripts, one per scenario, plus `invoke_verify.py` and `verify_common.py`. Needs the containers up. **Not a test suite** — see `verify/README.md`. |
+| `verify/` | The known-good numbers as runnable scripts, one per scenario, plus the unnumbered `lib_grid.py` for the ten `lib/` functions no scenario reaches, `invoke_verify.py` and `verify_common.py`. Needs the containers up. **Not a test suite** — see `verify/README.md`. |
 | `DIFFERENCES.md` | Why the port looks the way it does, including the rejected alternatives. |
 | `SIBLING-FINDINGS.md` | The cross-repository work queue. Currently empty. |
 
@@ -691,13 +691,16 @@ The table below exists as scripts. **Run those instead of writing new ones**, an
 than starting again in the scratchpad:
 
 ```
-python verify/invoke_verify.py            # all six, ten to fifteen minutes
+python verify/invoke_verify.py            # everything, ten to fifteen minutes
 python verify/invoke_verify.py --only 06  # one scenario
+python verify/invoke_verify.py --only lib # the ten functions no scenario reaches, seconds
 ```
 
 `verify/README.md` says what each script covers, what it changes, and why two numbers are printed
 rather than asserted. It is **not** a test suite: no pytest, no CI, no fixtures, and `01_setup.ps1`
-does not call it. The sibling has the same folder with the same six scenarios. A throwaway check takes
+does not call it. Six scripts are the six scenarios; `lib_grid.py` is deliberately unnumbered because it
+is not one, and covers the ten `lib/` functions no scenario reaches. The sibling has the same folder with
+the same six scenarios, and **no counterpart to `lib_grid.py` yet**. A throwaway check takes
 its bugs with it, which is the argument for the folder.
 
 ### Known-good numbers

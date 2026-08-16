@@ -23,6 +23,12 @@ args = parser.parse_args()
 
 here = Path(__file__).resolve().parent
 scripts = sorted(p for p in here.glob("[0-9][0-9]_*.py"))
+
+# lib_grid.py is named rather than globbed, because it is not a scenario and so has no number - the
+# glob above is deliberately only the NN_ files that pair with demo/NN_*.ipynb. It runs last and takes
+# seconds. See verify/README.md.
+scripts.append(here / "lib_grid.py")
+
 if args.only:
     scripts = [p for p in scripts if args.only in p.name]
 

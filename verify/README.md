@@ -54,6 +54,27 @@ exits. `--report-path` writes with `buffering=1`, which matters for the two scri
 | `04_photoservice.py` | 24 images, 43.5 MB, byte-identical by MD5 and length; the transfer's first pass carrying the backlog | Needs the shop running. |
 | `05_projectstatus.py` | 9 rows → 8 after the heading → 4 rejected for 4 named reasons → 5 land after the colour retry → 3 handed back | Seconds. The only fully deterministic scenario. |
 | `06_eventstreaming.py` | The five `kfk` functions, `auto.offset.reset` three ways, one application generation on the topic, whole-millisecond timestamps, and the replay compared to PostgreSQL column by column | **Stops and starts the shop** — see below. |
+| `lib_grid.py` | The ten `lib/` functions no scenario reaches: `read_*_query`, `export_*_table`, `get_*_table_information` and `remove_mdb_collection` | **Not numbered**, and not a scenario — see below. Seconds. Builds its own five-row fixture. |
+
+**`lib_grid.py` is the one file here that is not a scenario, and the missing number says so.** Every
+other script pairs with a `demo/NN_<name>.ipynb`; a `07_` would promise a seventh notebook that does not
+exist. `invoke_verify.py` therefore names it explicitly instead of globbing it, and it runs last.
+
+It exists because those nine functions **have no caller in `demo/`** — and neither do their counterparts
+in the sibling, which is why they were written: the two libraries are shown side by side and a hole in
+one of them shows. Nothing else in this folder would ever notice if they broke.
+`remove_mdb_collection` is the tenth for the mirror-image reason: its only caller is the photoservice
+container, so a scenario run exercises it by accident rather than on purpose.
+
+Two things about it worth knowing before changing it:
+
+- **It builds its own fixture rather than using scenario data**, because the properties being checked
+  have to be there deliberately: four different non-zero millisecond values, a `NULL` row, `ypercubeᵀᴹ`,
+  an embedded quote, and a `NUMERIC` with a negative and a zero. Five rows, and it costs no time.
+- **It is the one script whose output is not purely `PASS`/`FAIL` lines.** It exercises the
+  `enable_exception=False` path on purpose, and that path logs at `ERROR`. With no handler configured,
+  logging's `lastResort` puts anything at `WARNING` or above on stderr — so a `Query failed:` line
+  appears mid-run. A `line()` immediately before it says so, because otherwise it reads like a failure.
 
 ## Four rules these scripts follow
 
@@ -83,7 +104,9 @@ exactly this.
 
 ## What they change
 
-They create `Verify_*` tables and drop them again. Beyond that:
+They create `Verify_*` tables and drop them again — `lib_grid.py` also creates and drops a
+`Verify_LibGrid` MongoDB collection, and writes its export files to a `tempfile` directory rather than
+anywhere in the repository. Beyond that:
 
 - `02_stackexchange.py` uses the shipped `Users` and `Badges` tables rather than copies, because the
   `DATETIME2(3)` and `TIMESTAMP(3)` column types are part of what is being checked, and truncates them
@@ -97,8 +120,10 @@ They create `Verify_*` tables and drop them again. Beyond that:
 
 ## Adding to it
 
-One file per scenario, numbered to match `demo/NN_<name>.ipynb`. `verify_common.py` holds the helpers
-and should stay the only shared module. Its `add_repository_paths()` resolves `lib/` and `demo/` from
+One file per scenario, numbered to match `demo/NN_<name>.ipynb`. **A script that is not a scenario is
+not numbered**, is named explicitly in `invoke_verify.py` rather than globbed, and says in its docstring
+what it covers that no scenario does — `lib_grid.py` is the only one today.
+`verify_common.py` holds the helpers and should stay the only shared module. Its `add_repository_paths()` resolves `lib/` and `demo/` from
 `__file__` rather than from the working directory, which is the one deliberate difference from the
 notebooks' `sys.path.append(str(Path("../lib").resolve()))` — a verify script may be started from
 anywhere.
